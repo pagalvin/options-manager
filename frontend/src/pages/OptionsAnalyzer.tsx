@@ -1,4 +1,4 @@
-import { Delete, DeleteIcon, Edit, EditIcon } from 'lucide-react';
+import { DeleteIcon, EditIcon } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { FinancialLinks } from '../components/FinancialLinks';
 
@@ -160,7 +160,7 @@ export function OptionsAnalyzer() {
       
       // Using the API key from the environment
       // API key should be set in .env.local as VITE_ALPHA_VANTAGE_API_KEY
-      const apiKey = (import.meta.env as any).VITE_ALPHA_VANTAGE_API_KEY || 'YOUR_API_KEY';
+      const apiKey = import.meta.env.VITE_ALPHA_VANTAGE_API_KEY || 'YOUR_API_KEY';
       const symbol = formData.security.trim().toUpperCase();
       
       const response = await fetch(
