@@ -1,0 +1,24 @@
+{
+  "name": "options-trading-app",
+  "version": "1.0.0",
+  "description": "Options Trading ROI Tracker - Full Stack Application",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "npm run build:backend && npm run build:frontend",
+    "build:backend": "cd backend && npm run build",
+    "build:frontend": "cd frontend && npm run build",
+    "start": "cd backend && npm start",
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "setup": "npm run install:all && npm run build",
+    "clean": "rm -rf backend/dist frontend/dist backend/node_modules frontend/node_modules node_modules"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "keywords": ["options", "trading", "roi", "finance", "etrade"],
+  "author": "",
+  "license": "UNLICENSED",
+  "private": true
+}
