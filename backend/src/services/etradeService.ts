@@ -1,0 +1,531 @@
+import crypto from 'crypto';
+import axios from 'axios';
+
+interface ETradeConfig {
+  consumerKey: string;
+  consumerSecret: string;
+  baseUrl: string;
+  sandboxUrl: string;
+  authUrl: string;
+  useSandbox: boolean;
+}
+
+interface OAuthToken {
+  key: string;
+  secret: string;
+}
+
+interface RequestToken extends OAuthToken {
+  oauth_callback_confirmed?: string;
+}
+
+interface AccessToken extends OAuthToken {
+  oauth_session_handle?: string;
+  lastActivity?: number;
+  expiresAt?: number;
+}
+
+interface OptionGreeks {
+  rho: number;
+  vega: number;
+  theta: number;
+  delta: number;
+  gamma: number;
+  iv: number;
+  currentValue: boolean;
+}
+
+interface OptionDetails {
+  optionCategory: string;
+  optionRootSymbol: string;
+  timeStamp: number;
+  adjustedFlag: boolean;
+  displaySymbol: string;
+  optionType: string;
+  strikePrice: number;
+  symbol: string;
+  bid: number;
+  ask: number;
+  bidSize: number;
+  askSize: number;
+  inTheMoney: string;
+  volume: number;
+  openInterest: number;
+  netChange: number;
+  lastPrice: number;
+  quoteDetail: string;
+  osiKey: string;
+  optionGreek: OptionGreeks;
+}
+
+interface OptionChainPair {
+  Call?: OptionDetails;
+  Put?: OptionDetails;
+  pairType?: string;
+}
+
+interface SelectedED {
+  month: number;
+  year: number;
+  day: number;
+}
+
+interface OptionChainResponse {
+  optionPairs?: OptionChainPair[];
+  OptionPair?: OptionChainPair[];
+  timeStamp: number;
+  quoteType: string;
+  nearPrice: number;
+  selected?: SelectedED;
+  SelectedED?: SelectedED;
+}
+
+interface ExpirationDate {
+  year: number;
+  month: number;
+  day: number;
+  expiryType: string;
+}
+
+interface OptionExpireDateResponse {
+  expirationDates: ExpirationDate[];
+  ExpirationDate?: ExpirationDate[];
+}
+
+interface LookupData {
+  symbol: string;
+  description: string;
+  type: string;
+}
+
+interface LookupResponse {
+  data: LookupData[];
+  Data?: LookupData[];
+}
+
+interface StockQuote {
+  quoteResponse: {
+    quoteData: {
+      product: {
+        symbol: string;
+        companyName: string;
+      };
+      all: {
+        lastTrade: number;
+        bid: number;
+        ask: number;
+        bidSize: number;
+        askSize: number;
+        volume: number;
+        open: number;
+        high: number;
+        low: number;
+        close: number;
+        changeClose: number;
+        changeClosePercentage: number;
+        lastTradeTime: number;
+      };
+    }[];
+  };
+}
+
+export class ETradeService {
+  private config: ETradeConfig;
+  private requestTokens: Map<string, RequestToken> = new Map();
+  private accessTokens: Map<string, AccessToken> = new Map();
+
+  constructor() {
+    this.config = {
+      consumerKey: process.env.ETRADE_CONSUMER_KEY || '',
+      consumerSecret: process.env.ETRADE_CONSUMER_SECRET || '',
+      baseUrl: process.env.ETRADE_BASE_URL || 'https://api.etrade.com',
+      sandboxUrl: process.env.ETRADE_SANDBOX_URL || 'https://etwssandbox.etrade.com',
+      authUrl: 'https://us.etrade.com/e/t/etws/authorize',
+      useSandbox: process.env.NODE_ENV !== 'production'
+    };
+
+    if (!this.config.consumerKey || !this.config.consumerSecret) {
+      console.warn('E*TRADE credentials not configured. Please set ETRADE_CONSUMER_KEY and ETRADE_CONSUMER_SECRET environment variables.');
+    }
+  }
+
+  private generateNonce(): string {
+    return crypto.randomBytes(16).toString('hex');
+  }
+
+  private generateTimestamp(): string {
+    return Math.floor(Date.now() / 1000).toString();
+  }
+
+  private getApiBaseUrl(): string {
+    return this.config.useSandbox ? this.config.sandboxUrl : this.config.baseUrl;
+  }
+
+  private getTokenExpirationTime(): number {
+    // Access tokens expire at midnight US Eastern time
+    const now = new Date();
+    const easternTime = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const midnight = new Date(easternTime);
+    midnight.setHours(24, 0, 0, 0);
+    return midnight.getTime();
+  }
+
+  private isTokenExpired(token: AccessToken): boolean {
+    const now = Date.now();
+    return token.expiresAt ? now > token.expiresAt : false;
+  }
+
+  private isTokenInactive(token: AccessToken): boolean {
+    // Token becomes inactive after 2 hours of inactivity
+    const twoHoursInMs = 2 * 60 * 60 * 1000;
+    const now = Date.now();
+    return token.lastActivity ? (now - token.lastActivity) > twoHoursInMs : false;
+  }
+
+  private generateSignature(
+    method: string,
+    url: string,
+    params: Record<string, string>,
+    consumerSecret: string,
+    tokenSecret: string = ''
+  ): string {
+    // Sort parameters
+    const sortedParams = Object.keys(params)
+      .sort()
+      .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`)
+      .join('&');
+
+    // Create signature base string
+    const signatureBaseString = [
+      method.toUpperCase(),
+      encodeURIComponent(url),
+      encodeURIComponent(sortedParams)
+    ].join('&');
+
+    // Create signing key
+    const signingKey = `${encodeURIComponent(consumerSecret)}&${encodeURIComponent(tokenSecret)}`;
+
+    // Generate signature
+    return crypto
+      .createHmac('sha1', signingKey)
+      .update(signatureBaseString)
+      .digest('base64');
+  }
+
+  private createAuthHeader(
+    method: string,
+    url: string,
+    token?: OAuthToken,
+    additionalParams: Record<string, string> = {}
+  ): string {
+    const nonce = this.generateNonce();
+    const timestamp = this.generateTimestamp();
+
+    const oauthParams: Record<string, string> = {
+      oauth_consumer_key: this.config.consumerKey,
+      oauth_nonce: nonce,
+      oauth_signature_method: 'HMAC-SHA1',
+      oauth_timestamp: timestamp,
+      ...additionalParams
+    };
+
+    if (token) {
+      oauthParams.oauth_token = token.key;
+    }
+
+    const signature = this.generateSignature(
+      method,
+      url,
+      oauthParams,
+      this.config.consumerSecret,
+      token?.secret || ''
+    );
+
+    oauthParams.oauth_signature = signature;
+
+    const authString = Object.keys(oauthParams)
+      .map(key => `${encodeURIComponent(key)}="${encodeURIComponent(oauthParams[key])}"`)
+      .join(', ');
+
+    return `OAuth ${authString}`;
+  }
+
+  async getRequestToken(callbackUrl: string = 'oob'): Promise<{ token: RequestToken; authUrl: string; sessionId: string }> {
+    const url = `${this.getApiBaseUrl()}/oauth/request_token`;
+    const sessionId = crypto.randomUUID();
+
+    try {
+      const authHeader = this.createAuthHeader('GET', url, undefined, {
+        oauth_callback: 'oob'
+      });
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: authHeader
+        }
+      });
+
+      // Parse response
+      const params = new URLSearchParams(response.data);
+      const requestToken: RequestToken = {
+        key: params.get('oauth_token') || '',
+        secret: params.get('oauth_token_secret') || '',
+        oauth_callback_confirmed: params.get('oauth_callback_confirmed') || ''
+      };
+
+      // Store request token with session ID
+      this.requestTokens.set(sessionId, requestToken);
+
+      // Create authorization URL using the correct ETrade authorization endpoint
+      const authUrl = `${this.config.authUrl}?key=${encodeURIComponent(this.config.consumerKey)}&token=${encodeURIComponent(requestToken.key)}`;
+
+      return { token: requestToken, authUrl, sessionId };
+    } catch (error) {
+      console.error('Error getting request token:', error);
+      if (axios.isAxiosError(error)) {
+        throw new Error(`Failed to get request token: ${error.response?.status} ${error.response?.data || error.message}`);
+      }
+      throw new Error('Failed to get request token from E*TRADE');
+    }
+  }
+
+  async getAccessToken(sessionId: string, verifier: string): Promise<AccessToken> {
+    const requestToken = this.requestTokens.get(sessionId);
+    if (!requestToken) {
+      throw new Error('Request token not found. Please restart the authorization process.');
+    }
+
+    const url = `${this.getApiBaseUrl()}/oauth/access_token`;
+
+    try {
+      const authHeader = this.createAuthHeader('GET', url, requestToken, {
+        oauth_verifier: verifier
+      });
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: authHeader
+        }
+      });
+
+      // Parse response
+      const params = new URLSearchParams(response.data);
+      const accessToken: AccessToken = {
+        key: params.get('oauth_token') || '',
+        secret: params.get('oauth_token_secret') || '',
+        oauth_session_handle: params.get('oauth_session_handle') || '',
+        lastActivity: Date.now(),
+        expiresAt: this.getTokenExpirationTime()
+      };
+
+      // Store access token
+      this.accessTokens.set(sessionId, accessToken);
+
+      // Clean up request token
+      this.requestTokens.delete(sessionId);
+
+      return accessToken;
+    } catch (error) {
+      console.error('Error getting access token:', error);
+      if (axios.isAxiosError(error)) {
+        throw new Error(`Failed to get access token: ${error.response?.status} ${error.response?.data || error.message}`);
+      }
+      throw new Error('Failed to get access token from E*TRADE');
+    }
+  }
+
+  async renewAccessToken(sessionId: string): Promise<AccessToken> {
+    const accessToken = this.accessTokens.get(sessionId);
+    if (!accessToken) {
+      throw new Error('Access token not found. Please authenticate first.');
+    }
+
+    if (this.isTokenExpired(accessToken)) {
+      throw new Error('Access token has expired. Please re-authenticate.');
+    }
+
+    const url = `${this.getApiBaseUrl()}/oauth/renew_access_token`;
+
+    try {
+      const authHeader = this.createAuthHeader('GET', url, accessToken);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: authHeader
+        }
+      });
+
+      // Update the last activity time
+      accessToken.lastActivity = Date.now();
+      this.accessTokens.set(sessionId, accessToken);
+
+      return accessToken;
+    } catch (error) {
+      console.error('Error renewing access token:', error);
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          throw new Error('Access token renewal failed. Please re-authenticate.');
+        }
+        throw new Error(`Failed to renew access token: ${error.response?.status} ${error.response?.data || error.message}`);
+      }
+      throw new Error('Failed to renew access token from E*TRADE');
+    }
+  }
+
+  private async ensureValidToken(sessionId: string): Promise<AccessToken> {
+    const accessToken = this.accessTokens.get(sessionId);
+    if (!accessToken) {
+      throw new Error('Access token not found. Please authenticate first.');
+    }
+
+    if (this.isTokenExpired(accessToken)) {
+      throw new Error('Access token has expired. Please re-authenticate.');
+    }
+
+    if (this.isTokenInactive(accessToken)) {
+      // Try to renew the token
+      return await this.renewAccessToken(sessionId);
+    }
+
+    // Update last activity
+    accessToken.lastActivity = Date.now();
+    this.accessTokens.set(sessionId, accessToken);
+
+    return accessToken;
+  }
+
+  async getStockQuote(sessionId: string, symbol: string): Promise<StockQuote> {
+    try {
+      const accessToken = await this.ensureValidToken(sessionId);
+      const url = `${this.getApiBaseUrl()}/v1/market/quote/${encodeURIComponent(symbol)}`;
+
+      const authHeader = this.createAuthHeader('GET', url, accessToken);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: authHeader
+        }
+      });
+
+      return response.data;
+    } catch (error) {
+      console.error('Error getting stock quote:', error);
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          throw new Error('Authentication failed. Please re-authenticate.');
+        }
+        throw new Error(`Failed to get quote for ${symbol}: ${error.response?.status} ${error.response?.data || error.message}`);
+      }
+      throw new Error(`Failed to get quote for ${symbol}`);
+    }
+  }
+
+  async lookupProduct(sessionId: string, search: string): Promise<LookupResponse> {
+    try {
+      const accessToken = await this.ensureValidToken(sessionId);
+      const url = `${this.getApiBaseUrl()}/v1/market/lookup/${encodeURIComponent(search)}`;
+
+      const authHeader = this.createAuthHeader('GET', url, accessToken);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: authHeader
+        }
+      });
+
+      return response.data;
+    } catch (error) {
+      console.error('Error looking up product:', error);
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          throw new Error('Authentication failed. Please re-authenticate.');
+        }
+        throw new Error(`Failed to lookup product ${search}: ${error.response?.status} ${error.response?.data || error.message}`);
+      }
+      throw new Error(`Failed to lookup product ${search}`);
+    }
+  }
+
+  async getOptionChain(sessionId: string, symbol: string, expirationYear?: string, expirationMonth?: string, expirationDay?: string): Promise<OptionChainResponse> {
+    try {
+      const accessToken = await this.ensureValidToken(sessionId);
+      
+      let url = `${this.getApiBaseUrl()}/v1/market/optionchains?symbol=${encodeURIComponent(symbol)}`;
+      
+      if (expirationYear) {
+        url += `&expiryYear=${expirationYear}`;
+      }
+      if (expirationMonth) {
+        url += `&expiryMonth=${expirationMonth}`;
+      }
+      if (expirationDay) {
+        url += `&expiryDay=${expirationDay}`;
+      }
+
+      const authHeader = this.createAuthHeader('GET', url, accessToken);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: authHeader
+        }
+      });
+
+      return response.data;
+    } catch (error) {
+      console.error('Error getting option chain:', error);
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          throw new Error('Authentication failed. Please re-authenticate.');
+        }
+        throw new Error(`Failed to get option chain for ${symbol}: ${error.response?.status} ${error.response?.data || error.message}`);
+      }
+      throw new Error(`Failed to get option chain for ${symbol}`);
+    }
+  }
+
+  async getOptionExpirationDates(sessionId: string, symbol: string, expiryType?: string): Promise<ExpirationDate[]> {
+    try {
+      const accessToken = await this.ensureValidToken(sessionId);
+      let url = `${this.getApiBaseUrl()}/v1/market/optionexpiredate?symbol=${encodeURIComponent(symbol)}`;
+      
+      if (expiryType) {
+        url += `&expiryType=${expiryType}`;
+      }
+
+      const authHeader = this.createAuthHeader('GET', url, accessToken);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: authHeader
+        }
+      });
+
+      const responseData = response.data as OptionExpireDateResponse;
+      
+      // Handle both possible response formats
+      const expirationDates = responseData.expirationDates || responseData.ExpirationDate || [];
+      
+      return expirationDates;
+    } catch (error) {
+      console.error('Error getting expiration dates:', error);
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          throw new Error('Authentication failed. Please re-authenticate.');
+        }
+        throw new Error(`Failed to get expiration dates for ${symbol}: ${error.response?.status} ${error.response?.data || error.message}`);
+      }
+      throw new Error(`Failed to get expiration dates for ${symbol}`);
+    }
+  }
+
+  isAuthenticated(sessionId: string): boolean {
+    return this.accessTokens.has(sessionId);
+  }
+
+  clearSession(sessionId: string): void {
+    this.requestTokens.delete(sessionId);
+    this.accessTokens.delete(sessionId);
+  }
+}
+
+export const etradeService = new ETradeService();

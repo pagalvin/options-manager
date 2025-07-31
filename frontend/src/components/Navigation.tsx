@@ -9,6 +9,7 @@ const navigation = [
   { name: 'Options', href: '/options' },
   { name: 'Performance', href: '/performance' },
   { name: 'Options Analyzer', href: '/analyzer' },
+  { name: 'E*TRADE', href: '/etrade' },
   { name: 'Admin', href: '/admin' },
 ];
 

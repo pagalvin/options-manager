@@ -10,6 +10,8 @@ A comprehensive web application for tracking options trading performance, ROI ca
 - **ROI Analysis**: Calculate actual and potential returns
 - **Performance Metrics**: Monthly premium collection and performance tracking
 - **Options Management**: Track covered calls, premiums, and expiration dates
+- **E*TRADE Integration**: Real-time stock quotes and option chains via E*TRADE API
+- **Live Data**: Access real-time market data and option pricing
 
 ### Technical Stack
 - **Frontend**: React + TypeScript + Tailwind CSS + ShadCN UI
@@ -73,6 +75,18 @@ The application supports multiple stock price APIs:
 - **Alpha Vantage** (backup) - Get free API key at https://www.alphavantage.co/
 - **Yahoo Finance** (unofficial, backup)
 - **Stub data** (for testing without API keys)
+
+### E*TRADE API Integration
+For real-time stock quotes and option chains, configure E*TRADE API access:
+```
+ETRADE_CONSUMER_KEY=your_consumer_key
+ETRADE_CONSUMER_SECRET=your_consumer_secret
+ETRADE_SANDBOX_URL=https://etwssandbox.etrade.com
+ETRADE_BASE_URL=https://api.etrade.com
+FRONTEND_URL=http://localhost:5173
+```
+
+See [ETRADE_SETUP.md](./ETRADE_SETUP.md) for detailed setup instructions.
 
 ## Usage
 

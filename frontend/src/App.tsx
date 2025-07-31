@@ -7,6 +7,7 @@ import { Positions } from './pages/Positions';
 import { Options } from './pages/Options';
 import { Performance } from './pages/Performance';
 import { OptionsAnalyzer } from './pages/OptionsAnalyzer';
+import { ETradePage } from './pages/ETrade';
 import { Admin } from './pages/Admin';
 import { SymbolDetail } from './pages/SymbolDetail';
 
@@ -25,6 +26,7 @@ function App() {
             <Route path="/options" element={<Options />} />
             <Route path="/performance" element={<Performance />} />
             <Route path="/analyzer" element={<OptionsAnalyzer />} />
+            <Route path="/etrade" element={<ETradePage />} />
             <Route path="/admin" element={<Admin />} />
           </Routes>
         </main>

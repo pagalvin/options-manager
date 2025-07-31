@@ -7,6 +7,7 @@ interface Transaction {
   transaction_date: string;
   calculated_symbol: string;
   transaction_type: string;
+  security_type: string;
   description: string;
   quantity: number | string;
   amount: number | string;
@@ -18,6 +19,7 @@ interface AnalysisFilters {
   symbol: string;
   fromDate: string;
   toDate: string;
+  optionsOnly: boolean;
 }
 
 interface EditTransaction {
@@ -25,6 +27,7 @@ interface EditTransaction {
   transaction_date: string;
   calculated_symbol: string;
   transaction_type: string;
+  security_type: string;
   description: string;
   quantity: number | string;
   amount: number | string;
@@ -43,6 +46,7 @@ export function TransactionAnalysis() {
     symbol: 'all',
     fromDate: '',
     toDate: '',
+    optionsOnly: false,
   });
 
   const [activeQuickFilter, setActiveQuickFilter] = useState<string>('');
@@ -93,6 +97,19 @@ export function TransactionAnalysis() {
       filtered = filtered.filter(t => t.calculated_symbol === currentFilters.symbol);
     }
 
+    // Filter by options only
+    if (currentFilters.optionsOnly) {
+      filtered = filtered.filter(t => {
+        // Use security_type field if available, otherwise fall back to pattern matching
+        return t.security_type === 'OPTN' || 
+               t.transaction_type?.includes('Option') || 
+               t.description?.toLowerCase().includes('call') || 
+               t.description?.toLowerCase().includes('put') ||
+               t.description?.includes('$') && t.description?.includes('Call') ||
+               t.description?.includes('$') && t.description?.includes('Put');
+      });
+    }
+
     // Filter by date range
     if (currentFilters.fromDate) {
       filtered = filtered.filter(t => {
@@ -124,7 +141,7 @@ export function TransactionAnalysis() {
     applyFilters(transactions, filters);
   };
 
-  const handleFilterChange = (field: keyof AnalysisFilters, value: string) => {
+  const handleFilterChange = (field: keyof AnalysisFilters, value: string | boolean) => {
     const newFilters = { ...filters, [field]: value };
     setFilters(newFilters);
     // Clear active quick filter when manual filters are changed
@@ -139,6 +156,7 @@ export function TransactionAnalysis() {
       symbol: 'all',
       fromDate: '',
       toDate: '',
+      optionsOnly: false,
     };
     setFilters(clearedFilters);
     setActiveQuickFilter('');
@@ -151,6 +169,11 @@ export function TransactionAnalysis() {
     let fromDate = '';
 
     switch (filterType) {
+      case 'today':
+        // Today only - same from and to date
+        fromDate = todayStr;
+        break;
+      
       case 'last2trading':
         // Last 2 trading days - go back until we have 2 business days
         fromDate = getBusinessDaysAgo(today, 2).toISOString().split('T')[0];
@@ -219,6 +242,7 @@ export function TransactionAnalysis() {
 
   const getQuickFilterLabel = (filterType: string): string => {
     switch (filterType) {
+      case 'today': return 'Today';
       case 'last2trading': return 'Last 2 Trading Days';
       case 'last5trading': return 'Last 5 Trading Days';
       case 'lastweek': return 'Last Week';
@@ -272,6 +296,7 @@ export function TransactionAnalysis() {
       transaction_date: transaction.transaction_date.split('T')[0], // Format for date input
       calculated_symbol: transaction.calculated_symbol,
       transaction_type: transaction.transaction_type,
+      security_type: transaction.security_type,
       description: transaction.description,
       quantity: transaction.quantity,
       amount: transaction.amount,
@@ -510,12 +535,28 @@ export function TransactionAnalysis() {
           </div>
         </div>
         
+        {/* Options Filter Checkbox */}
+        <div className="mb-4">
+          <label className="flex items-center">
+            <input
+              type="checkbox"
+              checked={filters.optionsOnly}
+              onChange={(e) => handleFilterChange('optionsOnly', e.target.checked)}
+              className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+            />
+            <span className="text-sm font-medium text-gray-700">
+              Show options transactions only
+            </span>
+          </label>
+        </div>
+        
         <div className="flex items-center justify-between">
           <div className="text-sm text-gray-600">
             Showing {filteredTransactions.length} of {transactions.length} transactions
             {filters.symbol !== 'all' && ` for ${filters.symbol}`}
             {filters.fromDate && ` from ${new Date(filters.fromDate).toLocaleDateString()}`}
             {filters.toDate && ` to ${new Date(filters.toDate).toLocaleDateString()}`}
+            {filters.optionsOnly && ` (options only)`}
           </div>
           
           <button
@@ -577,6 +618,16 @@ export function TransactionAnalysis() {
           )}
         </div>
         <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => applyQuickFilter('today')}
+            className={`px-3 py-2 text-sm rounded transition-colors ${
+              activeQuickFilter === 'today' 
+                ? 'bg-red-500 text-white' 
+                : 'bg-red-100 text-red-700 hover:bg-red-200'
+            }`}
+          >
+            Today
+          </button>
           <button
             onClick={() => applyQuickFilter('last2trading')}
             className={`px-3 py-2 text-sm rounded transition-colors ${
