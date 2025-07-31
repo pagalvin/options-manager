@@ -6,10 +6,12 @@ applyTo: '**/*.jsx, **/*.tsx, **/*.js, **/*.ts, **/*.css, **/*.scss'
 # Project Overview
 This project supports managing actual and potential ROI for options trading with a particular emphasis on covered calls. It is designed to help users track their trades, analyze performance, and make informed decisions for future trades.
 
+# Passwords and keys and other sensitive information
+Never put passwords, API keys, or other sensitive information in the codebase. Use environment variables or secure vaults to manage sensitive data.
+
 # Command-line instructions
 
-You are running on a windows computer and should use powershell commands.
-
+You are running on a windows computer. Always use valid and syntactically correct  powershell commands.
 
 # ReactJS Development Instructions
 

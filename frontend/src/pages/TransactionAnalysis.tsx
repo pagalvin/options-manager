@@ -1,4 +1,5 @@
 import { FinancialLinks } from '@/components/FinancialLinks';
+import { calculateOpenOptions } from '@/lib/utils';
 import { useState, useEffect } from 'react';
 
 interface Transaction {
@@ -45,6 +46,9 @@ export function TransactionAnalysis() {
   });
 
   const [activeQuickFilter, setActiveQuickFilter] = useState<string>('');
+
+  // Sort state - default to newest first (descending)
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   // Edit/Delete state
   const [editingTransaction, setEditingTransaction] = useState<EditTransaction | null>(null);
@@ -104,10 +108,20 @@ export function TransactionAnalysis() {
       });
     }
 
-    // Sort by date ascending
-    filtered.sort((a, b) => new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime());
+    // Sort by date - use sortOrder state
+    if (sortOrder === 'desc') {
+      filtered.sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime());
+    } else {
+      filtered.sort((a, b) => new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime());
+    }
 
     setFilteredTransactions(filtered);
+  };
+
+  const toggleSortOrder = () => {
+    const newSortOrder = sortOrder === 'desc' ? 'asc' : 'desc';
+    setSortOrder(newSortOrder);
+    applyFilters(transactions, filters);
   };
 
   const handleFilterChange = (field: keyof AnalysisFilters, value: string) => {
@@ -249,44 +263,7 @@ export function TransactionAnalysis() {
   };
 
   const countOpenOptions = (): number => {
-    let totalOptionContracts = 0;
-
-    filteredTransactions.forEach(transaction => {
-      const quantity = parseFloat(String(transaction.quantity || '0'));
-      
-      // Only count if this looks like an options transaction
-      const type = (transaction.transaction_type || '').toUpperCase();
-      const description = (transaction.description || '').toUpperCase();
-      const symbol = (transaction.calculated_symbol || '').toUpperCase();
-      
-      const isOptionTransaction = (
-        type.includes('OPTION') ||
-        type.includes('CALL') ||
-        type.includes('PUT') ||
-        description.includes('OPTION') ||
-        description.includes('CALL') ||
-        description.includes('PUT') ||
-        symbol.includes('C') && /\d{6}/.test(symbol) ||
-        symbol.includes('P') && /\d{6}/.test(symbol) ||
-        /[A-Z]+\d{6}[CP]\d+/.test(symbol) ||
-        // Common option transaction types
-        transaction.transaction_type === 'Sold Short' ||
-        transaction.transaction_type === 'Bought To Cover' ||
-        transaction.transaction_type === 'Option Assigned' ||
-        transaction.transaction_type === 'Option Expired'
-      );
-
-      if (isOptionTransaction) {
-        // Use the same logic as Options page
-        if (transaction.transaction_type === 'Sold Short') {
-          totalOptionContracts += Math.abs(quantity);
-        } else if (['Bought To Cover', 'Option Assigned', 'Option Expired'].includes(transaction.transaction_type)) {
-          totalOptionContracts -= Math.abs(quantity);
-        }
-      }
-    });
-
-    return Math.max(0, totalOptionContracts);
+    return calculateOpenOptions(filteredTransactions);
   };
 
   const handleEditTransaction = (transaction: Transaction) => {
@@ -397,6 +374,13 @@ export function TransactionAnalysis() {
   useEffect(() => {
     fetchTransactions();
   }, []);
+
+  // Re-apply filters when sort order changes
+  useEffect(() => {
+    if (transactions.length > 0) {
+      applyFilters(transactions, filters);
+    }
+  }, [sortOrder]);
 
   // Calculate running total for filtered transactions
   const transactionsWithRunningTotal = filteredTransactions.map((transaction, index) => {
@@ -772,11 +756,31 @@ export function TransactionAnalysis() {
 
             {/* Transactions Table */}
             <div className="overflow-x-auto">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-medium">Transaction Details</h3>
+                <button
+                  onClick={toggleSortOrder}
+                  className="flex items-center space-x-2 bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded text-sm font-medium transition-colors"
+                >
+                  <span>Sort by Date:</span>
+                  <span className="font-bold">
+                    {sortOrder === 'desc' ? 'Newest First' : 'Oldest First'}
+                  </span>
+                  <span className="text-gray-500">
+                    {sortOrder === 'desc' ? '↓' : '↑'}
+                  </span>
+                </button>
+              </div>
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Date
+                      <div className="flex items-center space-x-1">
+                        <span>Date</span>
+                        <span className="text-blue-600">
+                          {sortOrder === 'desc' ? '↓' : '↑'}
+                        </span>
+                      </div>
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Security

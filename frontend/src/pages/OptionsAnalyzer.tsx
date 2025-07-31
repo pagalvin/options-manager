@@ -39,7 +39,7 @@ export function OptionsAnalyzer() {
   const [editingEntry, setEditingEntry] = useState<ManualOptionsAnalysis | null>(null);
   const [sortColumn, setSortColumn] = useState<string>('security');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
-  const [hideZeroLots, setHideZeroLots] = useState<boolean>(false);
+  const [hideZeroLots, setHideZeroLots] = useState<boolean>(true);
   const [fetchingPrice, setFetchingPrice] = useState<boolean>(false);
   const [formData, setFormData] = useState<FormData>({
     security: '',

@@ -178,7 +178,6 @@ export function Dashboard() {
   const totalUnrealizedGain = positions.reduce((sum, p) => sum + p.unrealizedGain, 0);
   const totalInvested = positions.reduce((sum, p) => sum + (p.currentShares * p.averageCost), 0);
   const totalCurrentValue = positions.reduce((sum, p) => sum + p.currentValue, 0);
-  const totalROI = totalInvested > 0 ? ((totalRealizedGain + totalUnrealizedGain) / totalInvested) * 100 : 0;
 
   // System information
   const totalTransactions = transactions.length;
@@ -205,7 +204,7 @@ export function Dashboard() {
         </div>
       )}
       
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-sm font-medium text-gray-500">Total Positions</h3>
           <p className="text-2xl font-bold">{totalPositions}</p>
@@ -224,14 +223,6 @@ export function Dashboard() {
             ${totalNetPremium.toFixed(2)}
           </p>
           <p className="text-sm text-gray-500">Premium collected minus paid</p>
-        </div>
-        
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-sm font-medium text-gray-500">Total ROI</h3>
-          <p className={`text-2xl font-bold ${totalROI >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-            {totalROI.toFixed(2)}%
-          </p>
-          <p className="text-sm text-gray-500">Overall return on investment</p>
         </div>
       </div>
 
