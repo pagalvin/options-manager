@@ -61,6 +61,8 @@ interface OptionDetails {
 interface OptionChainPair {
   Call?: OptionDetails;
   Put?: OptionDetails;
+  optioncall?: OptionDetails;  // JSON format
+  optionPut?: OptionDetails;   // JSON format
   pairType?: string;
 }
 
@@ -72,12 +74,12 @@ interface SelectedED {
 
 interface OptionChainResponse {
   optionPairs?: OptionChainPair[];
-  OptionPair?: OptionChainPair[];
+  OptionPair?: OptionChainPair[];   // XML format uses OptionPair
   timeStamp: number;
   quoteType: string;
   nearPrice: number;
   selected?: SelectedED;
-  SelectedED?: SelectedED;
+  SelectedED?: SelectedED;          // XML format uses SelectedED
 }
 
 interface ExpirationDate {
@@ -88,8 +90,11 @@ interface ExpirationDate {
 }
 
 interface OptionExpireDateResponse {
-  expirationDates: ExpirationDate[];
-  ExpirationDate?: ExpirationDate[];
+  expirationDates?: ExpirationDate[];
+  ExpirationDate?: ExpirationDate[];  // XML format uses ExpirationDate
+  OptionExpireDateResponse?: {  // Actual API response structure
+    ExpirationDate: ExpirationDate[];
+  };
 }
 
 interface LookupData {
@@ -136,17 +141,62 @@ export class ETradeService {
 
   constructor() {
     this.config = {
-      consumerKey: process.env.ETRADE_CONSUMER_KEY || '',
-      consumerSecret: process.env.ETRADE_CONSUMER_SECRET || '',
+      consumerKey: '', // Will be set dynamically based on environment
+      consumerSecret: '', // Will be set dynamically based on environment
       baseUrl: process.env.ETRADE_BASE_URL || 'https://api.etrade.com',
-      sandboxUrl: process.env.ETRADE_SANDBOX_URL || 'https://etwssandbox.etrade.com',
+      sandboxUrl: process.env.ETRADE_SANDBOX_URL || 'https://apisb.etrade.com',
       authUrl: 'https://us.etrade.com/e/t/etws/authorize',
       useSandbox: process.env.NODE_ENV !== 'production'
     };
 
-    if (!this.config.consumerKey || !this.config.consumerSecret) {
-      console.warn('E*TRADE credentials not configured. Please set ETRADE_CONSUMER_KEY and ETRADE_CONSUMER_SECRET environment variables.');
+    // Set initial credentials based on default environment
+    this.updateCredentials();
+  }
+
+  private updateCredentials(): void {
+    if (this.config.useSandbox) {
+      this.config.consumerKey = process.env.ETRADE_SANDBOX_CONSUMER_KEY || '';
+      this.config.consumerSecret = process.env.ETRADE_SANDBOX_CONSUMER_SECRET || '';
+    } else {
+      this.config.consumerKey = process.env.ETRADE_LIVE_CONSUMER_KEY || '';
+      this.config.consumerSecret = process.env.ETRADE_LIVE_CONSUMER_SECRET || '';
     }
+
+    if (!this.config.consumerKey || !this.config.consumerSecret) {
+      const env = this.config.useSandbox ? 'SANDBOX' : 'LIVE';
+      console.warn(`E*TRADE ${env} credentials not configured. Please set the appropriate environment variables.`);
+    }
+  }
+
+  // Method to switch between sandbox and live environments
+  setEnvironment(sandbox: boolean): void {
+    this.config.useSandbox = sandbox;
+    
+    // Update credentials for the new environment
+    this.updateCredentials();
+    
+    // Clear all authentication tokens when switching environments
+    // Sandbox tokens don't work with live environment and vice versa
+    this.requestTokens.clear();
+    this.accessTokens.clear();
+    
+    console.log(`E*TRADE environment switched to: ${sandbox ? 'SANDBOX' : 'LIVE'}`);
+    console.log('All authentication tokens cleared - re-authentication required');
+    
+    // Log credential status for debugging
+    const hasCredentials = this.config.consumerKey && this.config.consumerSecret;
+    console.log(`Credentials available for ${sandbox ? 'SANDBOX' : 'LIVE'} environment: ${hasCredentials}`);
+  }
+
+  getEnvironment(): { environment: string; baseUrl: string } {
+    return {
+      environment: this.config.useSandbox ? 'SANDBOX' : 'LIVE',
+      baseUrl: this.getApiBaseUrl()
+    };
+  }
+
+  hasValidCredentials(): boolean {
+    return !!(this.config.consumerKey && this.config.consumerSecret);
   }
 
   private generateNonce(): string {
@@ -189,16 +239,28 @@ export class ETradeService {
     consumerSecret: string,
     tokenSecret: string = ''
   ): string {
+    // Parse URL to separate base URL and query parameters
+    const urlObj = new URL(url);
+    const baseUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
+    
+    // Combine OAuth parameters with query parameters
+    const allParams: Record<string, string> = { ...params };
+    
+    // Add query parameters to the parameter list for signature
+    urlObj.searchParams.forEach((value, key) => {
+      allParams[key] = value;
+    });
+
     // Sort parameters
-    const sortedParams = Object.keys(params)
+    const sortedParams = Object.keys(allParams)
       .sort()
-      .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`)
+      .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(allParams[key])}`)
       .join('&');
 
-    // Create signature base string
+    // Create signature base string using the base URL (without query parameters)
     const signatureBaseString = [
       method.toUpperCase(),
-      encodeURIComponent(url),
+      encodeURIComponent(baseUrl),
       encodeURIComponent(sortedParams)
     ].join('&');
 
@@ -375,7 +437,7 @@ export class ETradeService {
   private async ensureValidToken(sessionId: string): Promise<AccessToken> {
     const accessToken = this.accessTokens.get(sessionId);
     if (!accessToken) {
-      throw new Error('Access token not found. Please authenticate first.');
+      throw new Error('No authentication session found. Please authenticate first.');
     }
 
     if (this.isTokenExpired(accessToken)) {
@@ -446,20 +508,38 @@ export class ETradeService {
     }
   }
 
-  async getOptionChain(sessionId: string, symbol: string, expirationYear?: string, expirationMonth?: string, expirationDay?: string): Promise<OptionChainResponse> {
+  async getOptionChain(
+    sessionId: string, 
+    symbol: string, 
+    options?: {
+      expirationYear?: string;
+      expirationMonth?: string;
+      expirationDay?: string;
+      strikePriceNear?: number;
+      noOfStrikes?: number;
+      includeWeekly?: boolean;
+      skipAdjusted?: boolean;
+      optionCategory?: 'STANDARD' | 'ALL' | 'MINI';
+      chainType?: 'CALL' | 'PUT' | 'CALLPUT';
+      priceType?: 'ATNM' | 'ALL';
+    }
+  ): Promise<OptionChainResponse> {
     try {
       const accessToken = await this.ensureValidToken(sessionId);
       
       let url = `${this.getApiBaseUrl()}/v1/market/optionchains?symbol=${encodeURIComponent(symbol)}`;
       
-      if (expirationYear) {
-        url += `&expiryYear=${expirationYear}`;
-      }
-      if (expirationMonth) {
-        url += `&expiryMonth=${expirationMonth}`;
-      }
-      if (expirationDay) {
-        url += `&expiryDay=${expirationDay}`;
+      if (options) {
+        if (options.expirationYear) url += `&expiryYear=${options.expirationYear}`;
+        if (options.expirationMonth) url += `&expiryMonth=${options.expirationMonth}`;
+        if (options.expirationDay) url += `&expiryDay=${options.expirationDay}`;
+        if (options.strikePriceNear) url += `&strikePriceNear=${options.strikePriceNear}`;
+        if (options.noOfStrikes) url += `&noOfStrikes=${options.noOfStrikes}`;
+        if (options.includeWeekly !== undefined) url += `&includeWeekly=${options.includeWeekly}`;
+        if (options.skipAdjusted !== undefined) url += `&skipAdjusted=${options.skipAdjusted}`;
+        if (options.optionCategory) url += `&optionCategory=${options.optionCategory}`;
+        if (options.chainType) url += `&chainType=${options.chainType}`;
+        if (options.priceType) url += `&priceType=${options.priceType}`;
       }
 
       const authHeader = this.createAuthHeader('GET', url, accessToken);
@@ -470,20 +550,58 @@ export class ETradeService {
         }
       });
 
-      return response.data;
+      const responseData = response.data as OptionChainResponse;
+      
+      // Normalize response format - handle both JSON and XML response structures
+      if (responseData.OptionPair && !responseData.optionPairs) {
+        responseData.optionPairs = responseData.OptionPair;
+      }
+      if (responseData.SelectedED && !responseData.selected) {
+        responseData.selected = responseData.SelectedED;
+      }
+
+      // Normalize option pairs - handle both formats
+      if (responseData.optionPairs) {
+        responseData.optionPairs = responseData.optionPairs.map(pair => ({
+          ...pair,
+          Call: pair.Call || pair.optioncall,
+          Put: pair.Put || pair.optionPut
+        }));
+      }
+
+      return responseData;
     } catch (error) {
       console.error('Error getting option chain:', error);
       if (axios.isAxiosError(error)) {
         if (error.response?.status === 401) {
           throw new Error('Authentication failed. Please re-authenticate.');
         }
-        throw new Error(`Failed to get option chain for ${symbol}: ${error.response?.status} ${error.response?.data || error.message}`);
+        
+        // Handle specific E*TRADE error codes
+        const errorMessage = error.response?.data || error.message;
+        if (typeof errorMessage === 'string') {
+          if (errorMessage.includes('10032') || errorMessage.includes('No options are available')) {
+            throw new Error(`No options are available for symbol ${symbol}.`);
+          }
+          if (errorMessage.includes('10044') || errorMessage.includes('no options available for the given symbol')) {
+            throw new Error(`No options are available for ${symbol} with the specified expiration date.`);
+          }
+          if (errorMessage.includes('10033') || errorMessage.includes('invalid')) {
+            throw new Error(`Invalid symbol: ${symbol}. Please enter another symbol.`);
+          }
+        }
+        
+        throw new Error(`Failed to get option chain for ${symbol}: ${error.response?.status} ${errorMessage}`);
       }
       throw new Error(`Failed to get option chain for ${symbol}`);
     }
   }
 
-  async getOptionExpirationDates(sessionId: string, symbol: string, expiryType?: string): Promise<ExpirationDate[]> {
+  async getOptionExpirationDates(
+    sessionId: string, 
+    symbol: string, 
+    expiryType?: 'UNSPECIFIED' | 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'VIX' | 'ALL' | 'MONTHEND'
+  ): Promise<ExpirationDate[]> {
     try {
       const accessToken = await this.ensureValidToken(sessionId);
       let url = `${this.getApiBaseUrl()}/v1/market/optionexpiredate?symbol=${encodeURIComponent(symbol)}`;
@@ -500,10 +618,30 @@ export class ETradeService {
         }
       });
 
-      const responseData = response.data as OptionExpireDateResponse;
+      console.log(`Expiration dates API response for ${symbol}:`, JSON.stringify(response.data, null, 2));
+
+      const responseData = response.data;
       
-      // Handle both possible response formats
-      const expirationDates = responseData.expirationDates || responseData.ExpirationDate || [];
+      // Handle the actual response structure - the data is wrapped in OptionExpireDateResponse
+      let expirationDates: ExpirationDate[] = [];
+      
+      if (responseData.OptionExpireDateResponse && responseData.OptionExpireDateResponse.ExpirationDate) {
+        // The actual structure from E*TRADE API
+        expirationDates = responseData.OptionExpireDateResponse.ExpirationDate;
+        console.log(`Using OptionExpireDateResponse.ExpirationDate path`);
+      } else if (responseData.expirationDates) {
+        // Alternative JSON structure
+        expirationDates = responseData.expirationDates;
+        console.log(`Using expirationDates path`);
+      } else if (responseData.ExpirationDate) {
+        // Direct XML structure
+        expirationDates = responseData.ExpirationDate;
+        console.log(`Using ExpirationDate path`);
+      } else {
+        console.log(`No matching path found. Available keys:`, Object.keys(responseData));
+      }
+      
+      console.log(`Parsed expiration dates for ${symbol}:`, expirationDates);
       
       return expirationDates;
     } catch (error) {
@@ -512,7 +650,25 @@ export class ETradeService {
         if (error.response?.status === 401) {
           throw new Error('Authentication failed. Please re-authenticate.');
         }
-        throw new Error(`Failed to get expiration dates for ${symbol}: ${error.response?.status} ${error.response?.data || error.message}`);
+        
+        // Handle specific E*TRADE error codes
+        const errorMessage = error.response?.data || error.message;
+        if (typeof errorMessage === 'string') {
+          if (errorMessage.includes('10032') || errorMessage.includes('No options are available')) {
+            throw new Error(`No options are available for symbol ${symbol}.`);
+          }
+          if (errorMessage.includes('10044') || errorMessage.includes('no options available for the given symbol')) {
+            throw new Error(`No options are available for ${symbol}.`);
+          }
+          if (errorMessage.includes('10033') || errorMessage.includes('invalid')) {
+            throw new Error(`Invalid symbol: ${symbol}. Please enter another symbol.`);
+          }
+          if (errorMessage.includes('10036') || errorMessage.includes('Error getting the ExpirationDates')) {
+            throw new Error(`Error getting expiration dates for ${symbol}.`);
+          }
+        }
+        
+        throw new Error(`Failed to get expiration dates for ${symbol}: ${error.response?.status} ${errorMessage}`);
       }
       throw new Error(`Failed to get expiration dates for ${symbol}`);
     }

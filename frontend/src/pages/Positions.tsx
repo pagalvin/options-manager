@@ -65,24 +65,6 @@ export function Positions() {
     }
   };
 
-  const recalculatePositions = async () => {
-    try {
-      const response = await fetch('http://localhost:3001/api/transactions/recalculate-positions', {
-        method: 'POST',
-      });
-      
-      if (response.ok) {
-        setError('');
-        // Refresh positions after recalculation
-        await fetchPositions();
-      } else {
-        setError('Failed to recalculate positions');
-      }
-    } catch (error) {
-      setError(`Error: ${error instanceof Error ? error.message : 'Failed to recalculate'}`);
-    }
-  };
-
   useEffect(() => {
     if (showClosedPositions) {
       fetchAllPositions();

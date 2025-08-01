@@ -100,6 +100,45 @@ router.post('/auth/logout', async (req, res) => {
   }
 });
 
+// Environment switching routes
+router.get('/environment', async (req, res) => {
+  try {
+    const environment = etradeService.getEnvironment();
+    const credentialsAvailable = etradeService.hasValidCredentials();
+    
+    res.json({
+      ...environment,
+      credentialsAvailable,
+      authenticated: false // We'll update this when we have session management
+    });
+  } catch (error) {
+    console.error('Error getting environment:', error);
+    res.status(500).json({ error: 'Failed to get environment' });
+  }
+});
+
+router.post('/environment', async (req, res) => {
+  try {
+    const { sandbox } = req.body;
+    
+    if (typeof sandbox !== 'boolean') {
+      return res.status(400).json({ error: 'sandbox parameter must be a boolean' });
+    }
+    
+    etradeService.setEnvironment(sandbox);
+    const environment = etradeService.getEnvironment();
+    
+    res.json({
+      success: true,
+      environment: environment.environment,
+      baseUrl: environment.baseUrl
+    });
+  } catch (error) {
+    console.error('Error setting environment:', error);
+    res.status(500).json({ error: 'Failed to set environment' });
+  }
+});
+
 // Get stock quote
 router.get('/quote/:symbol', async (req, res) => {
   try {
@@ -168,9 +207,11 @@ router.get('/options/:symbol', async (req, res) => {
     const optionChain = await etradeService.getOptionChain(
       sessionId, 
       symbol, 
-      expiryYear as string,
-      expiryMonth as string,
-      expiryDay as string
+      {
+        expirationYear: expiryYear as string,
+        expirationMonth: expiryMonth as string,
+        expirationDay: expiryDay as string
+      }
     );
     
     res.json(optionChain);
@@ -201,7 +242,7 @@ router.get('/options/:symbol/expirations', async (req, res) => {
     const expirationDates = await etradeService.getOptionExpirationDates(
       sessionId, 
       symbol, 
-      expiryType as string
+      expiryType as 'UNSPECIFIED' | 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'VIX' | 'ALL' | 'MONTHEND' | undefined
     );
     res.json({ expirationDates });
   } catch (error) {

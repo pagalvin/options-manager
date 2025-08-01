@@ -54,7 +54,7 @@ export interface ETradeOptionDetails {
   lastPrice: number;
   quoteDetail: string;
   osiKey: string;
-  optionGreek: ETradeOptionGreeks;
+  OptionGreeks: ETradeOptionGreeks;
 }
 
 export interface ETradeOptionChainPair {
@@ -77,6 +77,16 @@ export interface ETradeOptionChain {
   nearPrice: number;
   selected?: ETradeSelectedED;
   SelectedED?: ETradeSelectedED;
+}
+
+export interface ETradeOptionChainResponse {
+  OptionChainResponse: {
+    timeStamp: number;
+    quoteType: string;
+    nearPrice: number;
+    OptionPair: ETradeOptionChainPair[];
+    SelectedED: ETradeSelectedED;
+  };
 }
 
 export interface ETradeExpirationDate {

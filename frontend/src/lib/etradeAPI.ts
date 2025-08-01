@@ -190,6 +190,32 @@ class ETradeAPI {
 
     return response.json();
   }
+
+  async getEnvironment(): Promise<{ environment: string; baseUrl: string }> {
+    const response = await fetch('/api/etrade/environment');
+    
+    if (!response.ok) {
+      throw new Error(`Failed to get environment: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  async setEnvironment(sandbox: boolean): Promise<{ success: boolean; environment: string; baseUrl: string }> {
+    const response = await fetch('/api/etrade/environment', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ sandbox }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to set environment: ${response.status}`);
+    }
+
+    return response.json();
+  }
 }
 
 export const etradeAPI = new ETradeAPI();
