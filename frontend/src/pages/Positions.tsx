@@ -11,6 +11,7 @@ interface Position {
   current_value?: number | string;
   unrealized_pnl?: number | string;
   security_name?: string;
+  recommended_weekly_premium?: number | string;
 }
 
 export function Positions() {
@@ -58,10 +59,24 @@ export function Positions() {
   };
 
   const filterPositions = (positionsData: Position[], symbol: string) => {
+    // First filter out positions with negative quantities (invalid data)
+    const validPositions = positionsData.filter(pos => {
+      const quantity = parseFloat(String(pos.quantity));
+      return quantity >= 0; // Only include positions with non-negative quantities
+    });
+    
+    // Log if any positions were filtered out due to negative quantities
+    const filteredOutCount = positionsData.length - validPositions.length;
+    if (filteredOutCount > 0) {
+      console.warn(`Filtered out ${filteredOutCount} position(s) with negative quantities:`, 
+        positionsData.filter(pos => parseFloat(String(pos.quantity)) < 0).map(pos => `${pos.symbol}: ${pos.quantity}`)
+      );
+    }
+    
     if (symbol === 'all') {
-      setFilteredPositions(positionsData);
+      setFilteredPositions(validPositions);
     } else {
-      setFilteredPositions(positionsData.filter(pos => pos.symbol === symbol));
+      setFilteredPositions(validPositions.filter(pos => pos.symbol === symbol));
     }
   };
 
@@ -180,10 +195,16 @@ export function Positions() {
                     Total Invested
                   </th>
                   <th className={headerRowStyles(true)}>
+                    Current Basis
+                  </th>
+                  <th className={headerRowStyles(true)}>
                     Current Value
                   </th>
                   <th className={headerRowStyles()}>
                     Unrealized P&L
+                  </th>
+                  <th className={headerRowStyles()}>
+                    Rec. Weekly Premium
                   </th>
                   <th className={headerRowStyles()}>
                     Status
@@ -199,6 +220,7 @@ export function Positions() {
                   const currentValueFromDB = parseFloat(String(position.current_value || '0'));
                   
                   const currentValue = currentValueFromDB > 0 ? currentValueFromDB : (quantity * averageCost);
+                  const currentBasis = quantity * averageCost;
                   const unrealizedPnl = currentValue - totalInvested;
                   const pnlClass = unrealizedPnl >= 0 ? 'text-green-600' : 'text-red-600';
                   const isClosed = quantity === 0;
@@ -228,6 +250,9 @@ export function Positions() {
                         ${totalInvested.toFixed(2)}
                       </td>
                       <td className={baseRowStyles(true)}>
+                        ${currentBasis.toFixed(2)}
+                      </td>
+                      <td className={baseRowStyles(true)}>
                         ${currentValue.toFixed(2)}
                       </td>
                       <td className={`p-1 whitespace-nowrap text-sm text-right ${pnlClass}`}>
@@ -236,18 +261,20 @@ export function Positions() {
                           ({((unrealizedPnl / Math.abs(totalInvested)) * 100).toFixed(1)}%)
                         </div>
                       </td>
+                      <td className={baseRowStyles(true)}>
+                        {position.recommended_weekly_premium ? 
+                          `$${parseFloat(String(position.recommended_weekly_premium)).toFixed(2)}` : 
+                          '-'
+                        }
+                      </td>
                       <td className={baseRowStyles()}>
                         {isClosed ? (
                           <span className="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded">
                             Closed
                           </span>
-                        ) : quantity > 0 ? (
-                          <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded">
-                            Long
-                          </span>
                         ) : (
-                          <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded">
-                            Short
+                          <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded">
+                            Open
                           </span>
                         )}
                       </td>
@@ -260,7 +287,7 @@ export function Positions() {
             <div className="mt-4 text-sm text-gray-500">
               {selectedSymbol === 'all' ? (
                 <>
-                  Total Positions: {filteredPositions.length}
+                  Total Valid Positions: {filteredPositions.length}
                   {showClosedPositions && (
                     <>
                       {' | '}
@@ -269,12 +296,20 @@ export function Positions() {
                       Closed: {filteredPositions.filter(p => parseFloat(String(p.quantity)) === 0).length}
                     </>
                   )}
+                  {positions.length !== filteredPositions.length && (
+                    <>
+                      {' | '}
+                      <span className="text-orange-600">
+                        {positions.length - filteredPositions.length} position(s) with invalid data excluded
+                      </span>
+                    </>
+                  )}
                 </>
               ) : (
                 <>
                   Showing {filteredPositions.length} position{filteredPositions.length !== 1 ? 's' : ''} for {selectedSymbol}
-                  {positions.length > filteredPositions.length && (
-                    <> | {positions.length - filteredPositions.length} other symbols available</>
+                  {positions.filter(p => parseFloat(String(p.quantity)) >= 0).length > filteredPositions.length && (
+                    <> | {positions.filter(p => parseFloat(String(p.quantity)) >= 0).length - filteredPositions.length} other symbols available</>
                   )}
                 </>
               )}

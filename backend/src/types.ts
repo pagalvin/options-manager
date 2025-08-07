@@ -34,6 +34,9 @@ export interface Position {
   currentValue: number;
   unrealizedGainLoss: number;
   lastUpdated?: Date;
+  manual_avg_strike_price?: number;
+  manual_option_contracts?: number;
+  recommended_weekly_premium?: number;
 }
 
 export interface Option {
