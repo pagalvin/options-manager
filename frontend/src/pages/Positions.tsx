@@ -11,16 +11,34 @@ interface Position {
   current_value?: number | string;
   unrealized_pnl?: number | string;
   security_name?: string;
+  last_trade?: number | string;
   recommended_weekly_premium?: number | string;
 }
 
 export function Positions() {
   const [positions, setPositions] = useState<Position[]>([]);
+  const [toggleUpdatePositions, setToggleUpdatePositions] = useState(false);
   const [filteredPositions, setFilteredPositions] = useState<Position[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const [showClosedPositions, setShowClosedPositions] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState<string>('all');
+
+  useEffect(() => {
+      const fetchAllPrices = async () => {
+          const toUpdate = positions.filter(p => {
+            const val = typeof p.current_value === 'number' ? p.current_value : NaN;
+            return !(typeof val === 'number' && !Number.isNaN(val) && val > 0);
+          });
+          toUpdate.forEach(async (position) => {
+              const price = await fetchPriceForSymbol(position.symbol);
+              console.log(`Positions.tsx: price for ${position.symbol} is ${price}`);
+          });
+      };
+      if (toggleUpdatePositions &&positions.length > 0) {
+          fetchAllPrices();
+      }
+  }, [toggleUpdatePositions]);
 
   const fetchPositions = async () => {
     try {
@@ -30,6 +48,7 @@ export function Positions() {
         const data = await response.json();
         setPositions(data);
         filterPositions(data, selectedSymbol);
+        setToggleUpdatePositions(true);
       } else {
         setError('Failed to fetch positions');
       }
@@ -40,6 +59,40 @@ export function Positions() {
     }
   };
 
+  const fetchPriceForSymbol = async (symbol: string) => {
+      try {
+          const normalized = symbol.trim().toUpperCase();
+          const response = await fetch(
+              `http://localhost:3001/api/etrade/quote/${encodeURIComponent(normalized)}`,
+              {
+                  headers: { "x-session-id": localStorage.getItem("etrade_session_id") || "" },
+              }
+          );
+          if (response.ok) {
+              const priceData = await response.json();
+              const lastTrade: number | undefined = priceData?.QuoteResponse?.QuoteData?.[0]?.All?.lastTrade;
+
+              if (typeof lastTrade === 'number' && !Number.isNaN(lastTrade)) {
+                  setPositions(prev => prev.map(p =>
+                      p.symbol.toUpperCase() === normalized
+                          ? { ...p, last_trade: lastTrade, current_value: lastTrade * parseFloat(String(p.quantity)) }
+                          : p
+                  ));
+                  return lastTrade;
+              } else {
+                  console.warn(`Positions.tsx: Could not parse lastTrade for ${normalized}`, priceData);
+                  return null;
+              }
+          } else {
+              console.error(`Positions.tsx: Failed to fetch price for ${symbol}`);
+              return null;
+          }
+      } catch (error) {
+          console.error(`Positions.tsx: Error fetching price for ${symbol}:`, error);
+          return null;
+      }
+  };
+
   const fetchAllPositions = async () => {
     try {
       setLoading(true);
@@ -48,8 +101,9 @@ export function Positions() {
         const data = await response.json();
         setPositions(data);
         filterPositions(data, selectedSymbol);
-      } else {
-        setError('Failed to fetch all positions');
+
+        console.log(`Positions.tsx: fetching prices for ${data.length} positions...`);
+        // Fetch simple price indicators for all positions
       }
     } catch (error) {
       setError(`Error: ${error instanceof Error ? error.message : 'Failed to fetch all positions'}`);
@@ -198,6 +252,9 @@ export function Positions() {
                     Current Basis
                   </th>
                   <th className={headerRowStyles(true)}>
+                    Last Trade
+                  </th>
+                  <th className={headerRowStyles(true)}>
                     Current Value
                   </th>
                   <th className={headerRowStyles()}>
@@ -217,10 +274,16 @@ export function Positions() {
                   const quantity = parseFloat(String(position.quantity));
                   const averageCost = parseFloat(String(position.average_cost));
                   const totalInvested = parseFloat(String(position.total_invested));
-                  const currentValueFromDB = parseFloat(String(position.current_value || '0'));
-                  
-                  const currentValue = currentValueFromDB > 0 ? currentValueFromDB : (quantity * averageCost);
                   const currentBasis = quantity * averageCost;
+
+                  const currentValue = (typeof position.current_value === 'number' && !Number.isNaN(position.current_value))
+                    ? (position.current_value as number)
+                    : currentBasis; // fallback until price loads
+
+                  const lastTrade = (typeof position.last_trade === 'number' && !Number.isNaN(position.last_trade))
+                    ? (position.last_trade as number)
+                    : 0; // fallback until price loads
+
                   const unrealizedPnl = currentValue - totalInvested;
                   const pnlClass = unrealizedPnl >= 0 ? 'text-green-600' : 'text-red-600';
                   const isClosed = quantity === 0;
@@ -251,6 +314,9 @@ export function Positions() {
                       </td>
                       <td className={baseRowStyles(true)}>
                         ${currentBasis.toFixed(2)}
+                      </td>
+                      <td className={baseRowStyles(true)}>
+                        ${lastTrade}
                       </td>
                       <td className={baseRowStyles(true)}>
                         ${currentValue.toFixed(2)}

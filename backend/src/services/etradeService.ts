@@ -138,6 +138,9 @@ export class ETradeService {
   private config: ETradeConfig;
   private requestTokens: Map<string, RequestToken> = new Map();
   private accessTokens: Map<string, AccessToken> = new Map();
+  // Add a simple in-memory cache for quotes with a 30s TTL, keyed by environment and symbol
+  private quoteCache: Map<string, { data: StockQuote; fetchedAt: number }> = new Map();
+  private readonly QUOTE_CACHE_TTL_MS = 30_000;
 
   constructor() {
     this.config = {
@@ -459,8 +462,15 @@ export class ETradeService {
   async getStockQuote(sessionId: string, symbol: string): Promise<StockQuote> {
     try {
       const accessToken = await this.ensureValidToken(sessionId);
-      const url = `${this.getApiBaseUrl()}/v1/market/quote/${encodeURIComponent(symbol)}`;
 
+      // Check cache first (cache key includes environment to avoid cross-env contamination)
+      const cacheKey = `${this.config.useSandbox ? 'SANDBOX' : 'LIVE'}:${symbol.toUpperCase()}`;
+      const cached = this.quoteCache.get(cacheKey);
+      if (cached && (Date.now() - cached.fetchedAt) < this.QUOTE_CACHE_TTL_MS) {
+        return cached.data;
+      }
+
+      const url = `${this.getApiBaseUrl()}/v1/market/quote/${encodeURIComponent(symbol)}`;
       const authHeader = this.createAuthHeader('GET', url, accessToken);
 
       const response = await axios.get(url, {
@@ -468,6 +478,9 @@ export class ETradeService {
           Authorization: authHeader
         }
       });
+
+      // Cache the fresh response
+      this.quoteCache.set(cacheKey, { data: response.data, fetchedAt: Date.now() });
 
       return response.data;
     } catch (error) {

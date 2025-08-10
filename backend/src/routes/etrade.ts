@@ -164,6 +164,35 @@ router.get('/quote/:symbol', async (req, res) => {
   }
 });
 
+// Get simple current price success indicator
+router.get('/api/price/:symbol', async (req, res) => {
+
+  console.log(`etrade.ts: /api/price/${req.params.symbol} called`);
+  
+  try {
+    const { symbol } = req.params;
+    const sessionId = req.headers['x-session-id'] as string;
+
+    if (!sessionId) {
+      return res.status(401).json({ symbol, didSucceed: false, error: 'Session ID required' });
+    }
+
+    if (!etradeService.isAuthenticated(sessionId)) {
+      return res.status(401).json({ symbol, didSucceed: false, error: 'Not authenticated' });
+    }
+
+    const quote = await etradeService.getStockQuote(sessionId, symbol);
+
+    const lastTrade = quote?.quoteResponse?.quoteData?.[0]?.all?.lastTrade;
+    const didSucceed = typeof lastTrade === 'number' && !Number.isNaN(lastTrade);
+
+    return res.json({ lastTrade, symbol, didSucceed });
+  } catch (error) {
+    console.error('Error getting simple price indicator:', error);
+    return res.status(500).json({ symbol: req.params.symbol, didSucceed: false });
+  }
+});
+
 // Product lookup
 router.get('/lookup/:search', async (req, res) => {
   try {
@@ -249,6 +278,68 @@ router.get('/options/:symbol/expirations', async (req, res) => {
     console.error('Error getting expiration dates:', error);
     res.status(500).json({ 
       error: 'Failed to get expiration dates',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Combined endpoint: if called with ?symbol=XYZ, return quote and first available option chain
+router.get('/', async (req, res) => {
+  try {
+    const qSymbol = (req.query.symbol as string | undefined)?.trim();
+    if (!qSymbol) {
+      return res.json({ ok: true });
+    }
+
+    const symbol = qSymbol.toUpperCase();
+    const sessionId = req.headers['x-session-id'] as string;
+
+    if (!sessionId) {
+      return res.status(401).json({ error: 'Session ID required' });
+    }
+
+    if (!etradeService.isAuthenticated(sessionId)) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    // Fetch quote and expirations in parallel
+    const [quote, expirations] = await Promise.all([
+      etradeService.getStockQuote(sessionId, symbol),
+      etradeService.getOptionExpirationDates(sessionId, symbol, 'ALL')
+    ]);
+
+    // Pick earliest expiration by date if available
+    let selectedExpiration: { year: number; month: number; day: number; expiryType: string } | null = null;
+    let optionChain: any = null;
+
+    if (Array.isArray(expirations) && expirations.length > 0) {
+      const sorted = [...expirations].sort((a, b) => {
+        const da = new Date(a.year, a.month - 1, a.day).getTime();
+        const db = new Date(b.year, b.month - 1, b.day).getTime();
+        return da - db;
+      });
+      selectedExpiration = sorted[0];
+
+      // Fetch option chain for the selected expiration
+      optionChain = await etradeService.getOptionChain(sessionId, symbol, {
+        expirationYear: String(selectedExpiration.year),
+        expirationMonth: String(selectedExpiration.month),
+        expirationDay: String(selectedExpiration.day),
+        chainType: 'CALLPUT',
+      });
+    }
+
+    return res.json({
+      symbol,
+      quote,
+      expirationDates: expirations,
+      selectedExpiration,
+      optionChain,
+    });
+  } catch (error) {
+    console.error('Error in combined E*TRADE request:', error);
+    res.status(500).json({ 
+      error: 'Failed to get combined E*TRADE data',
       message: error instanceof Error ? error.message : 'Unknown error'
     });
   }

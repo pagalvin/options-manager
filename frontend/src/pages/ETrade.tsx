@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { AlertCircle, CheckCircle2, RefreshCw, TrendingUp, TrendingDown, Calendar, DollarSign, Target, Activity, Info, BarChart3 } from 'lucide-react';
 import { FinancialLinks } from '@/components/FinancialLinks';
 
@@ -148,6 +149,11 @@ export function ETradePage() {
   const [environmentLoading, setEnvironmentLoading] = useState(false);
   const [credentialsAvailable, setCredentialsAvailable] = useState(true);
   const [showFullChain, setShowFullChain] = useState(false);
+  
+  // Read query params (e.g., ?symbol=DVN)
+  const [searchParams] = useSearchParams();
+  const [autoInitDone, setAutoInitDone] = useState(false);
+  const [autoFetchChain, setAutoFetchChain] = useState(false);
 
   // Check existing authentication status
   useEffect(() => {
@@ -160,12 +166,53 @@ export function ETradePage() {
     loadEnvironment();
   }, []);
 
+  // If symbol query param exists, set it once on mount
+  useEffect(() => {
+    const qp = searchParams.get('symbol');
+    if (qp && !autoInitDone) {
+      setSymbol(qp.toUpperCase());
+    }
+  }, [searchParams, autoInitDone]);
+
   // Store session ID in localStorage when authenticated
   useEffect(() => {
     if (sessionId) {
       localStorage.setItem('etrade_session_id', sessionId);
     }
   }, [sessionId]);
+
+  // After authenticated and if a query param symbol exists, auto fetch quote and expirations
+  useEffect(() => {
+    const qp = searchParams.get('symbol');
+    if (!qp) return;
+    if (!authenticated || !sessionId) return;
+    if (autoInitDone) return;
+
+    const run = async () => {
+      try {
+        const upper = qp.toUpperCase();
+        setSymbol(upper);
+        await Promise.all([
+          fetchStockQuote(),
+          fetchExpirationDates()
+        ]);
+        // Once expirations are loaded (selectedExpiration set to first), trigger chain fetch in next effect
+        setAutoFetchChain(true);
+      } finally {
+        setAutoInitDone(true);
+      }
+    };
+
+    run();
+  }, [authenticated, sessionId, searchParams, autoInitDone]);
+
+  // Once we have a selected expiration and were auto-initializing, fetch the first option chain
+  useEffect(() => {
+    if (!autoFetchChain) return;
+    if (!selectedExpiration) return;
+    fetchOptionChain();
+    setAutoFetchChain(false);
+  }, [autoFetchChain, selectedExpiration]);
 
   const loadEnvironment = async () => {
     try {
@@ -1388,7 +1435,7 @@ export function ETradePage() {
                             <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold text-emerald-600">
                               +{formatCurrency(opportunity.gainAmount)}
                             </td>
-                            <td className="px-4 py-4 whitespace-nowrap">
+                            <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold">
                               <div className={`text-sm font-bold ${
                                 opportunity.gainPercent >= 5 ? 'text-emerald-700' :
                                 opportunity.gainPercent >= 3 ? 'text-emerald-600' :

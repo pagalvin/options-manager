@@ -40,6 +40,7 @@ app.use('/api/analyzer', analyzerRoutes);
 app.use('/api/strike-price', strikePriceRoutes);
 app.use('/api/manual-options-analysis', manualOptionsAnalysisRoutes);
 app.use('/api/etrade', etradeRoutes);
+app.use('/api/price', stockPriceRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req: express.Request, res: express.Response) => {
