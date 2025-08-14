@@ -502,4 +502,80 @@ router.get('/accounts/:accountIdKey/transactions/:transactionId', async (req, re
   }
 });
 
+// Get account orders
+router.get('/accounts/:accountIdKey/orders', async (req, res) => {
+  try {
+    const { accountIdKey } = req.params;
+    const sessionId = req.headers['x-session-id'] as string;
+
+    if (!sessionId) {
+      return res.status(401).json({ error: 'Session ID required' });
+    }
+
+    if (!etradeService.isAuthenticated(sessionId)) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { marker, count, status, fromDate, toDate, symbol, securityType, transactionType, marketSession } = req.query;
+
+    const orders = await etradeService.getOrders(sessionId, accountIdKey, {
+      marker: marker as string,
+      count: count ? parseInt(count as string) : undefined,
+      status: status as any,
+      fromDate: fromDate as string,
+      toDate: toDate as string,
+      symbol: symbol as string,
+      securityType: securityType as any,
+      transactionType: transactionType as any,
+      marketSession: marketSession as any
+    });
+    
+    res.json(orders);
+  } catch (error) {
+    console.error('Error getting account orders:', error);
+    res.status(500).json({ 
+      error: 'Failed to get account orders',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Get ALL account orders (handles pagination automatically)
+router.get('/accounts/:accountIdKey/orders/all', async (req, res) => {
+  try {
+    const { accountIdKey } = req.params;
+    const sessionId = req.headers['x-session-id'] as string;
+
+    if (!sessionId) {
+      return res.status(401).json({ error: 'Session ID required' });
+    }
+
+    if (!etradeService.isAuthenticated(sessionId)) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { status, fromDate, toDate, symbol, securityType, transactionType, marketSession, maxPages, pageDelay } = req.query;
+
+    const orders = await etradeService.getAllOrders(sessionId, accountIdKey, {
+      status: status as any,
+      fromDate: fromDate as string,
+      toDate: toDate as string,
+      symbol: symbol as string,
+      securityType: securityType as any,
+      transactionType: transactionType as any,
+      marketSession: marketSession as any,
+      maxPages: maxPages ? parseInt(maxPages as string) : undefined,
+      pageDelay: pageDelay ? parseInt(pageDelay as string) : undefined
+    });
+    
+    res.json(orders);
+  } catch (error) {
+    console.error('Error getting all account orders:', error);
+    res.status(500).json({ 
+      error: 'Failed to get all account orders',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 export default router;

@@ -248,6 +248,72 @@ interface TransactionDetailsResponse {
   brokerage?: TransactionBrokerage;
 }
 
+// Order interfaces based on actual ETrade API response
+interface OrderProduct {
+  symbol: string;
+  securityType: string;
+  callPut?: string;
+  expiryYear?: number;
+  expiryMonth?: number;
+  expiryDay?: number;
+  strikePrice?: number;
+  productId?: {
+    symbol: string;
+    typeCode: string;
+  };
+}
+
+interface OrderInstrument {
+  symbolDescription: string;
+  orderAction: string;
+  quantityType: string;
+  orderedQuantity: number;
+  filledQuantity: number;
+  estimatedCommission: number;
+  estimatedFees: number;
+  Product: OrderProduct;
+}
+
+interface OrderDetail {
+  placedTime?: number;
+  executedTime?: number;
+  orderValue?: number;
+  status: string;
+  orderTerm: string;
+  priceType: string;
+  limitPrice?: number;
+  stopPrice?: number;
+  marketSession: string;
+  replacesOrderId?: number;
+  allOrNone?: boolean;
+  netPrice?: number;
+  netBid?: number;
+  netAsk?: number;
+  gcd?: number;
+  ratio?: string;
+  Instrument?: OrderInstrument[];
+}
+
+interface Order {
+  orderId: number;
+  details: string; // URL to order details
+  orderType: string;
+  OrderDetail: OrderDetail[];
+}
+
+interface OrdersResponse {
+  OrdersResponse?: {
+    Order?: Order[];
+    marker?: string;
+    moreOrders?: boolean;
+    next?: string;
+  };
+  Order?: Order[];
+  marker?: string;
+  moreOrders?: boolean;
+  next?: string;
+}
+
 export class ETradeService {
   private config: ETradeConfig;
   private requestTokens: Map<string, RequestToken> = new Map();
@@ -1097,6 +1163,179 @@ export class ETradeService {
         throw new Error(`Failed to get transaction details: ${error.response?.status} ${errorMessage}`);
       }
       throw new Error('Failed to get transaction details from E*TRADE');
+    }
+  }
+
+  async getOrders(
+    sessionId: string,
+    accountIdKey: string,
+    options?: {
+      marker?: string;
+      count?: number; // 1-25, defaults to 25
+      status?: 'OPEN' | 'EXECUTED' | 'CANCELLED' | 'INDIVIDUAL_FILLS' | 'CANCEL_REQUESTED' | 'EXPIRED' | 'REJECTED';
+      fromDate?: string; // MMDDYYYY format
+      toDate?: string;   // MMDDYYYY format
+      symbol?: string;
+      securityType?: 'EQ' | 'OPTN' | 'MMF' | 'BOND';
+      transactionType?: 'ATNM' | 'BUY' | 'SELL' | 'BUY_TO_COVER' | 'SELL_SHORT';
+      marketSession?: 'REGULAR' | 'EXTENDED';
+    }
+  ): Promise<OrdersResponse> {
+    try {
+      const accessToken = await this.ensureValidToken(sessionId);
+      
+      let url = `${this.getApiBaseUrl()}/v1/accounts/${encodeURIComponent(accountIdKey)}/orders`;
+      const queryParams: string[] = [];
+      
+      if (options) {
+        if (options.marker) queryParams.push(`marker=${encodeURIComponent(options.marker)}`);
+        if (options.count) queryParams.push(`count=${options.count}`);
+        if (options.status) queryParams.push(`status=${options.status}`);
+        if (options.fromDate) queryParams.push(`fromDate=${options.fromDate}`);
+        if (options.toDate) queryParams.push(`toDate=${options.toDate}`);
+        if (options.symbol) queryParams.push(`symbol=${encodeURIComponent(options.symbol)}`);
+        if (options.securityType) queryParams.push(`securityType=${options.securityType}`);
+        if (options.transactionType) queryParams.push(`transactionType=${options.transactionType}`);
+        if (options.marketSession) queryParams.push(`marketSession=${options.marketSession}`);
+      }
+      
+      if (queryParams.length > 0) {
+        url += `?${queryParams.join('&')}`;
+      }
+
+      const authHeader = this.createAuthHeader('GET', url, accessToken);
+
+      // Use retry logic for the API call
+      const response = await this.retryWithBackoff(async () => {
+        return axios.get(url, {
+          headers: {
+            Authorization: authHeader
+          }
+        });
+      });
+
+      console.log(`Orders API response for account ${accountIdKey}:`, JSON.stringify(response.data, null, 2));
+
+      const responseData = response.data as OrdersResponse;
+      
+      // Normalize response format - handle both JSON and XML response structures
+      const normalizedResponse: OrdersResponse = {};
+      
+      if (responseData.OrdersResponse) {
+        // XML format wrapper
+        normalizedResponse.Order = responseData.OrdersResponse.Order || [];
+        normalizedResponse.marker = responseData.OrdersResponse.marker;
+        normalizedResponse.moreOrders = responseData.OrdersResponse.moreOrders;
+        normalizedResponse.next = responseData.OrdersResponse.next;
+      } else {
+        // Direct JSON format
+        normalizedResponse.Order = responseData.Order || [];
+        normalizedResponse.marker = responseData.marker;
+        normalizedResponse.moreOrders = responseData.moreOrders;
+        normalizedResponse.next = responseData.next;
+      }
+
+      return normalizedResponse;
+    } catch (error) {
+      console.error('Error getting orders:', error);
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          throw new Error('Authentication failed. Please re-authenticate.');
+        }
+        if (error.response?.status === 204) {
+          // No orders found - this is normal, return empty response
+          return {
+            Order: [],
+            marker: undefined,
+            moreOrders: false,
+            next: undefined
+          };
+        }
+        
+        const errorMessage = error.response?.data || error.message;
+        throw new Error(`Failed to get orders: ${error.response?.status} ${errorMessage}`);
+      }
+      throw new Error('Failed to get orders from E*TRADE');
+    }
+  }
+
+  async getAllOrders(
+    sessionId: string,
+    accountIdKey: string,
+    options?: {
+      status?: 'OPEN' | 'EXECUTED' | 'CANCELLED' | 'INDIVIDUAL_FILLS' | 'CANCEL_REQUESTED' | 'EXPIRED' | 'REJECTED';
+      fromDate?: string; // MMDDYYYY format
+      toDate?: string;   // MMDDYYYY format
+      symbol?: string;
+      securityType?: 'EQ' | 'OPTN' | 'MMF' | 'BOND';
+      transactionType?: 'ATNM' | 'BUY' | 'SELL' | 'BUY_TO_COVER' | 'SELL_SHORT';
+      marketSession?: 'REGULAR' | 'EXTENDED';
+      maxPages?: number; // Maximum pages to fetch (safety limit)
+      pageDelay?: number; // Delay between pages in milliseconds
+    }
+  ): Promise<OrdersResponse> {
+    try {
+      const allOrders: any[] = [];
+      let currentMarker: string | undefined = undefined;
+      let pageCount = 0;
+      const maxPages = options?.maxPages || 10; // Safety limit for orders (usually fewer pages than transactions)
+      const pageDelay = options?.pageDelay || 1000; // Default 1 second delay between pages
+      
+      console.log(`Starting to fetch all orders (max ${maxPages} pages, ${pageDelay}ms delay)...`);
+      
+      while (pageCount < maxPages) {
+        console.log(`Fetching orders page ${pageCount + 1}/${maxPages}...`);
+        
+        // Add delay between requests (except for the first one)
+        if (pageCount > 0) {
+          console.log(`Waiting ${pageDelay}ms before next request...`);
+          await this.delay(pageDelay);
+        }
+        
+        const pageResult = await this.retryWithBackoff(async () => {
+          return this.getOrders(sessionId, accountIdKey, {
+            status: options?.status,
+            fromDate: options?.fromDate,
+            toDate: options?.toDate,
+            symbol: options?.symbol,
+            securityType: options?.securityType,
+            transactionType: options?.transactionType,
+            marketSession: options?.marketSession,
+            marker: currentMarker,
+            count: 25 // Use max page size for efficiency
+          });
+        });
+        
+        if (pageResult.Order && pageResult.Order.length > 0) {
+          allOrders.push(...pageResult.Order);
+          console.log(`Page ${pageCount + 1}: Added ${pageResult.Order.length} orders (total: ${allOrders.length})`);
+        } else {
+          console.log(`Page ${pageCount + 1}: No orders returned`);
+        }
+        
+        pageCount++;
+        
+        // Check if there are more pages
+        if (!pageResult.moreOrders || !pageResult.marker) {
+          console.log(`No more pages available after page ${pageCount}`);
+          break;
+        }
+        
+        currentMarker = pageResult.marker;
+        console.log(`Next page marker: ${currentMarker}`);
+      }
+      
+      console.log(`Completed fetching ${pageCount} pages with ${allOrders.length} total orders`);
+      
+      return {
+        Order: allOrders,
+        marker: undefined,
+        moreOrders: false,
+        next: undefined
+      };
+    } catch (error) {
+      console.error('Error getting all orders:', error);
+      throw error;
     }
   }
 }

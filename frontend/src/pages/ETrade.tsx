@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { AlertCircle, CheckCircle2, RefreshCw, TrendingUp, TrendingDown, Calendar, DollarSign, Target, Activity, Info, BarChart3, FileText } from 'lucide-react';
 import { FinancialLinks } from '@/components/FinancialLinks';
 import { TransactionBrowser } from '@/components/TransactionBrowser';
+import { OrderBrowser } from '@/components/OrderBrowser';
 
 interface StockQuote {
   QuoteResponse: {
@@ -152,7 +153,7 @@ export function ETradePage() {
   const [showFullChain, setShowFullChain] = useState(false);
   
   // Submenu state
-  const [activeSubmenu, setActiveSubmenu] = useState<'quotes' | 'transactions'>('quotes');
+  const [activeSubmenu, setActiveSubmenu] = useState<'quotes' | 'transactions' | 'orders'>('quotes');
   
   // Read query params (e.g., ?symbol=DVN)
   const [searchParams] = useSearchParams();
@@ -761,6 +762,19 @@ export function ETradePage() {
                   <div className="flex items-center space-x-2">
                     <FileText size={16} />
                     <span>Transactions</span>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setActiveSubmenu('orders')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeSubmenu === 'orders'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    <Target size={16} />
+                    <span>Open Orders</span>
                   </div>
                 </button>
               </nav>
@@ -1748,9 +1762,12 @@ export function ETradePage() {
         </div>
       )}
             </div>
-          ) : (
+          ) : activeSubmenu === 'transactions' ? (
             /* Transactions submenu */
             <TransactionBrowser />
+          ) : (
+            /* Open Orders submenu */
+            <OrderBrowser />
           )}
       </div>
     );

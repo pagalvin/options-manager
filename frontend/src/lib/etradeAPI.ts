@@ -310,6 +310,88 @@ class ETradeAPI {
 
     return response.json();
   }
+
+  async getOrders(
+    accountIdKey: string, 
+    options?: {
+      marker?: string;
+      count?: number;
+      status?: 'OPEN' | 'EXECUTED' | 'CANCELLED' | 'INDIVIDUAL_FILLS' | 'CANCEL_REQUESTED' | 'EXPIRED' | 'REJECTED';
+      fromDate?: string;
+      toDate?: string;
+      symbol?: string;
+      securityType?: 'EQ' | 'OPTN' | 'MMF' | 'BOND';
+      transactionType?: 'ATNM' | 'BUY' | 'SELL' | 'BUY_TO_COVER' | 'SELL_SHORT';
+      marketSession?: 'REGULAR' | 'EXTENDED';
+    }
+  ): Promise<any> {
+    let url = `/api/etrade/accounts/${encodeURIComponent(accountIdKey)}/orders`;
+    const params = new URLSearchParams();
+    
+    if (options?.marker) params.append('marker', options.marker);
+    if (options?.count) params.append('count', options.count.toString());
+    if (options?.status) params.append('status', options.status);
+    if (options?.fromDate) params.append('fromDate', options.fromDate);
+    if (options?.toDate) params.append('toDate', options.toDate);
+    if (options?.symbol) params.append('symbol', options.symbol);
+    if (options?.securityType) params.append('securityType', options.securityType);
+    if (options?.transactionType) params.append('transactionType', options.transactionType);
+    if (options?.marketSession) params.append('marketSession', options.marketSession);
+    
+    if (params.toString()) {
+      url += `?${params.toString()}`;
+    }
+
+    const response = await this.makeAuthenticatedRequest(url);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Failed to get orders: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  async getAllOrders(
+    accountIdKey: string, 
+    options?: {
+      status?: 'OPEN' | 'EXECUTED' | 'CANCELLED' | 'INDIVIDUAL_FILLS' | 'CANCEL_REQUESTED' | 'EXPIRED' | 'REJECTED';
+      fromDate?: string;
+      toDate?: string;
+      symbol?: string;
+      securityType?: 'EQ' | 'OPTN' | 'MMF' | 'BOND';
+      transactionType?: 'ATNM' | 'BUY' | 'SELL' | 'BUY_TO_COVER' | 'SELL_SHORT';
+      marketSession?: 'REGULAR' | 'EXTENDED';
+      maxPages?: number;
+      pageDelay?: number;
+    }
+  ): Promise<any> {
+    let url = `/api/etrade/accounts/${encodeURIComponent(accountIdKey)}/orders/all`;
+    const params = new URLSearchParams();
+    
+    if (options?.status) params.append('status', options.status);
+    if (options?.fromDate) params.append('fromDate', options.fromDate);
+    if (options?.toDate) params.append('toDate', options.toDate);
+    if (options?.symbol) params.append('symbol', options.symbol);
+    if (options?.securityType) params.append('securityType', options.securityType);
+    if (options?.transactionType) params.append('transactionType', options.transactionType);
+    if (options?.marketSession) params.append('marketSession', options.marketSession);
+    if (options?.maxPages) params.append('maxPages', options.maxPages.toString());
+    if (options?.pageDelay) params.append('pageDelay', options.pageDelay.toString());
+    
+    if (params.toString()) {
+      url += `?${params.toString()}`;
+    }
+
+    const response = await this.makeAuthenticatedRequest(url);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Failed to get all orders: ${response.status}`);
+    }
+
+    return response.json();
+  }
 }
 
 export const etradeAPI = new ETradeAPI();
