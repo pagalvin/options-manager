@@ -43,6 +43,9 @@ CREATE TABLE positions (
     total_invested DECIMAL(12, 2) DEFAULT 0,
     current_value DECIMAL(12, 2) DEFAULT 0,
     unrealized_gain_loss DECIMAL(12, 2) DEFAULT 0,
+    manual_avg_strike_price DECIMAL(12, 4) DEFAULT NULL,
+    manual_option_contracts INTEGER DEFAULT NULL,
+    recommended_weekly_premium DECIMAL(12, 4) DEFAULT NULL,
     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(symbol)
 );

@@ -60,6 +60,7 @@ export function Performance() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedSymbol, setSelectedSymbol] = useState<string>('ALL');
 
   // Fetch all transactions
   const fetchTransactions = async () => {
@@ -234,6 +235,414 @@ export function Performance() {
   const symbolPerformance = calculateSymbolPerformance();
   const transactionTypes = calculateTransactionTypes();
 
+  // Helpers for weekly net premium chart
+  const formatYyyyMmDd = (d: Date) => {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const startOfWeekSunday = (d: Date) => {
+    const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const day = date.getDay(); // 0 = Sunday
+    const diff = day; // days since Sunday
+    date.setDate(date.getDate() - diff);
+    date.setHours(0, 0, 0, 0);
+    return date;
+  };
+
+  // compute threshold week start (Sunday of week containing 2025-02-20)
+  const thresholdWeekStart = (() => {
+    const ref = new Date('2025-02-20T00:00:00');
+    return startOfWeekSunday(ref);
+  })();
+
+  // Unique option symbols for filter
+  const optionSymbols = Array.from(
+    new Set(
+      transactions
+        .filter(t => t.security_type === 'OPTN' && t.calculated_symbol && t.calculated_symbol.trim() !== '')
+        .map(t => t.calculated_symbol)
+    )
+  ).sort();
+
+  // Weekly net premium data starting from threshold week
+  const weeklyNetPremiumData = (() => {
+    const weeklyMap = new Map<string, { week: string; netPremium: number }>();
+    transactions
+      .filter(t => t.security_type === 'OPTN')
+      .filter(t => selectedSymbol === 'ALL' || t.calculated_symbol === selectedSymbol)
+      .forEach(t => {
+        const d = new Date(t.transaction_date);
+        const weekStart = startOfWeekSunday(d);
+        if (weekStart < thresholdWeekStart) return;
+        const key = formatYyyyMmDd(weekStart);
+        if (!weeklyMap.has(key)) weeklyMap.set(key, { week: key, netPremium: 0 });
+        const val = weeklyMap.get(key)!;
+        const amt = Number(t.amount) || 0;
+        val.netPremium += amt;
+      });
+
+    // sort by week ascending and return as array
+    return Array.from(weeklyMap.values()).sort((a, b) => a.week.localeCompare(b.week));
+  })();
+
+  // Monthly net premium data (similar to weekly but aggregated by month)
+  const monthlyNetPremiumData = (() => {
+    const monthlyMap = new Map<string, { month: string; monthName: string; netPremium: number }>();
+    transactions
+      .filter(t => t.security_type === 'OPTN')
+      .filter(t => selectedSymbol === 'ALL' || t.calculated_symbol === selectedSymbol)
+      .forEach(t => {
+        const d = new Date(t.transaction_date);
+        if (d < thresholdWeekStart) return;
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        const monthName = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        if (!monthlyMap.has(key)) monthlyMap.set(key, { month: key, monthName, netPremium: 0 });
+        const val = monthlyMap.get(key)!;
+        const amt = Number(t.amount) || 0;
+        val.netPremium += amt;
+      });
+
+    // sort by month ascending and return as array
+    return Array.from(monthlyMap.values()).sort((a, b) => a.month.localeCompare(b.month));
+  })();
+  const tablesStartDate = new Date('2025-02-01T00:00:00');
+  const filteredOptionTxSinceStart = transactions.filter(t => {
+    if (t.security_type !== 'OPTN') return false;
+    if (selectedSymbol !== 'ALL' && t.calculated_symbol !== selectedSymbol) return false;
+    const d = new Date(t.transaction_date);
+    return d >= tablesStartDate;
+  });
+
+  // Total net premium by month since 2025-02-01
+  const totalByMonthData = (() => {
+    const map = new Map<string, { key: string; label: string; sum: number }>();
+    filteredOptionTxSinceStart.forEach(t => {
+      const d = new Date(t.transaction_date);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      if (!map.has(key)) map.set(key, { key, label, sum: 0 });
+      const rec = map.get(key)!;
+      rec.sum += Number(t.amount) || 0;
+    });
+    return Array.from(map.values())
+      .sort((a, b) => a.key.localeCompare(b.key))
+      .map(r => ({ period: r.label, total: r.sum }));
+  })();
+
+  // Total net premium by week (weeks start Sunday) since 2025-02-01
+  const totalByWeekData = (() => {
+    const map = new Map<string, { key: string; start: Date; sum: number }>();
+    filteredOptionTxSinceStart.forEach(t => {
+      const d = new Date(t.transaction_date);
+      const ws = startOfWeekSunday(d);
+      const key = formatYyyyMmDd(ws);
+      if (!map.has(key)) map.set(key, { key, start: ws, sum: 0 });
+      const rec = map.get(key)!;
+      rec.sum += Number(t.amount) || 0;
+    });
+    return Array.from(map.values())
+      .sort((a, b) => a.key.localeCompare(b.key))
+      .map(r => ({
+        period: `Week of ${r.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
+        total: r.sum
+      }));
+  })();
+
+  // Summary averages derived from totals
+  const avgNetMonthlyPremium = totalByMonthData.length
+    ? totalByMonthData.reduce((s, r) => s + r.total, 0) / totalByMonthData.length
+    : 0;
+  const avgNetWeeklyPremium = totalByWeekData.length
+    ? totalByWeekData.reduce((s, r) => s + r.total, 0) / totalByWeekData.length
+    : 0;
+
+  // --- Net ROI (all transactions) ---
+  const excludedTypes = new Set<string>(['Online Transfer', 'Transfer']);
+
+  const filteredAllSinceStartForROI = transactions.filter(t => {
+    if (excludedTypes.has(t.transaction_type)) return false;
+    if (selectedSymbol !== 'ALL') {
+      if (!t.calculated_symbol || t.calculated_symbol !== selectedSymbol) return false;
+    }
+    return true;
+  });
+
+  // Weekly Net ROI chart (same threshold and Sunday weeks)
+  const weeklyRoiData = (() => {
+    const map = new Map<string, { week: string; net: number; absSum: number }>();
+    filteredAllSinceStartForROI.forEach(t => {
+      const d = new Date(t.transaction_date);
+      const ws = startOfWeekSunday(d);
+      if (ws < thresholdWeekStart) return;
+      const key = formatYyyyMmDd(ws);
+      if (!map.has(key)) map.set(key, { week: key, net: 0, absSum: 0 });
+      const rec = map.get(key)!;
+      const amt = Number(t.amount) || 0;
+      rec.net += amt;
+      rec.absSum += Math.abs(amt);
+    });
+    return Array.from(map.values())
+      .sort((a, b) => a.week.localeCompare(b.week))
+      .map(r => ({ week: r.week, roiPct: r.absSum > 0 ? (r.net / r.absSum) * 100 : 0 }));
+  })();
+
+  // Monthly ROI table since 2025-02-01
+  const roiByMonthData = (() => {
+    const map = new Map<string, { key: string; label: string; net: number; absSum: number }>();
+    filteredAllSinceStartForROI.forEach(t => {
+      const d = new Date(t.transaction_date);
+      if (d < tablesStartDate) return;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      if (!map.has(key)) map.set(key, { key, label, net: 0, absSum: 0 });
+      const rec = map.get(key)!;
+      const amt = Number(t.amount) || 0;
+      rec.net += amt;
+      rec.absSum += Math.abs(amt);
+    });
+    return Array.from(map.values())
+      .sort((a, b) => a.key.localeCompare(b.key))
+      .map(r => ({ period: r.label, roiPct: r.absSum > 0 ? (r.net / r.absSum) * 100 : 0 }));
+  })();
+
+  // Weekly ROI table since 2025-02-01 (weeks start Sunday)
+  const roiByWeekData = (() => {
+    const map = new Map<string, { key: string; start: Date; net: number; absSum: number }>();
+    filteredAllSinceStartForROI.forEach(t => {
+      const d = new Date(t.transaction_date);
+      if (d < tablesStartDate) return;
+      const ws = startOfWeekSunday(d);
+      const key = formatYyyyMmDd(ws);
+      if (!map.has(key)) map.set(key, { key, start: ws, net: 0, absSum: 0 });
+      const rec = map.get(key)!;
+      const amt = Number(t.amount) || 0;
+      rec.net += amt;
+      rec.absSum += Math.abs(amt);
+    });
+    return Array.from(map.values())
+      .sort((a, b) => a.key.localeCompare(b.key))
+      .map(r => ({
+        period: `Week of ${r.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
+        roiPct: r.absSum > 0 ? (r.net / r.absSum) * 100 : 0
+      }));
+  })();
+
+  const avgMonthlyROI = roiByMonthData.length
+    ? roiByMonthData.reduce((s, r) => s + r.roiPct, 0) / roiByMonthData.length
+    : 0;
+  const avgWeeklyROI = roiByWeekData.length
+    ? roiByWeekData.reduce((s, r) => s + r.roiPct, 0) / roiByWeekData.length
+    : 0;
+
+  // Weekly Net Premium as % of At-Risk Equity
+  // At-Risk Equity definition: cumulative net value of all EQ transactions up to Saturday for symbols with option sales
+  type WeekKey = string; // YYYY-MM-DD (Sunday)
+
+  const weeklyPremiumPctData = (() => {
+    // 1) Identify symbols with option sales per week (Sunday-start), regardless of coverage
+    const symbolsWithSoldByWeek = new Map<WeekKey, Set<string>>();
+    transactions
+      .filter(t => t.security_type === 'OPTN' && t.transaction_type === 'Sold Short')
+      .forEach(t => {
+        const d = new Date(t.transaction_date);
+        const wk = formatYyyyMmDd(startOfWeekSunday(d));
+        const sym = t.calculated_symbol?.trim();
+        if (!sym) return;
+        if (selectedSymbol !== 'ALL' && sym !== selectedSymbol) return;
+        if (!symbolsWithSoldByWeek.has(wk)) symbolsWithSoldByWeek.set(wk, new Set());
+        symbolsWithSoldByWeek.get(wk)!.add(sym);
+      });
+
+    // Early exit if no option-selling weeks
+    if (symbolsWithSoldByWeek.size === 0) return [] as { week: string; pct: number; premium: number; atRisk: number }[];
+
+    // 2) Get all EQ equity transactions with multiples of 100 shares, sorted by date
+    const eqTransactions = transactions
+      .filter(t => t.security_type === 'EQ' && (t.transaction_type === 'Bought' || t.transaction_type === 'Sold'))
+      .filter(t => {
+        const qty = Math.abs(Number(t.quantity) || 0);
+        return qty % 100 === 0; // only multiples of 100
+      })
+      .filter(t => {
+        const sym = t.calculated_symbol?.trim();
+        return sym && (selectedSymbol === 'ALL' || sym === selectedSymbol);
+      })
+      .map(t => ({
+        date: new Date(t.transaction_date),
+        symbol: t.calculated_symbol?.trim() || '',
+        type: t.transaction_type as 'Bought' | 'Sold',
+        qty: Number(t.quantity) || 0, // keep sign: positive for bought, negative for sold
+        price: Number(t.price) || 0,
+        amount: Number(t.amount) || 0 // transaction amount (negative for buys, positive for sales)
+      }))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    // 3) Calculate weekly at-risk for all equity positions, and premium only for symbols with option sales
+    const weeklyAtRiskSnapshot = new Map<WeekKey, number>();
+    const weeklyPremium = new Map<WeekKey, number>();
+    
+    // Get all weeks from threshold onward
+    const allWeeks = new Set<WeekKey>();
+    
+    // Add weeks with option sales
+    for (const weekKey of symbolsWithSoldByWeek.keys()) {
+      allWeeks.add(weekKey);
+    }
+    
+    // Add weeks with equity transactions after threshold
+    for (const tx of eqTransactions) {
+      if (tx.date >= thresholdWeekStart) {
+        const weekKey = formatYyyyMmDd(startOfWeekSunday(tx.date));
+        allWeeks.add(weekKey);
+      }
+    }
+    
+    for (const weekKey of allWeeks) {
+      const weekStart = new Date(weekKey + 'T00:00:00');
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6); // Saturday
+      weekEnd.setHours(23, 59, 59, 999);
+
+      // Replay all transactions up to Saturday to get net invested amounts
+      const symbolNetInvested = new Map<string, number>();
+      
+      for (const tx of eqTransactions) {
+        if (tx.date > weekEnd) break; // transactions are sorted by date
+        
+        const currentNet = symbolNetInvested.get(tx.symbol) || 0;
+        // For net invested calculation: subtract amount (since purchases are negative, sales positive)
+        // Net invested = total purchases - total sales
+        symbolNetInvested.set(tx.symbol, currentNet - tx.amount);
+      }
+      
+      // Sum net invested for ALL symbols with positive net investment (at-risk calculation)
+      let totalAtRisk = 0;
+      for (const netInvested of symbolNetInvested.values()) {
+        if (netInvested > 0) {
+          totalAtRisk += netInvested;
+        }
+      }
+      
+      weeklyAtRiskSnapshot.set(weekKey, totalAtRisk);
+      
+      // Calculate premium for ALL option transactions this week (not limited by symbol)
+      const weekPremium = transactions
+        .filter(t => t.security_type === 'OPTN')
+        .filter(t => {
+          const d = new Date(t.transaction_date);
+          return d >= weekStart && d <= weekEnd;
+        })
+        .filter(t => {
+          const sym = t.calculated_symbol?.trim();
+          return sym && (selectedSymbol === 'ALL' || sym === selectedSymbol);
+        })
+        .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+      
+      weeklyPremium.set(weekKey, weekPremium);
+    }
+
+    // 5) Build chart data: pct = premium / atRisk * 100
+    const weeks = Array.from(new Set<string>([
+      ...Array.from(weeklyAtRiskSnapshot.keys()),
+      ...Array.from(weeklyPremium.keys()),
+    ])).sort((a, b) => a.localeCompare(b));
+
+    const data = weeks.map(wk => {
+      const atRisk = weeklyAtRiskSnapshot.get(wk) || 0;
+      const premium = weeklyPremium.get(wk) || 0;
+      const pct = atRisk > 0 ? (premium / atRisk) * 100 : 0;
+      return { week: wk, pct, premium, atRisk };
+    });
+
+    return data;
+  })();
+
+  // Monthly Net Premium as % of At-Risk Equity (similar logic but aggregated by month)
+  const monthlyPremiumPctData = (() => {
+    // 1) Get all months from threshold onward
+    const allMonths = new Set<string>(); // YYYY-MM format
+    
+    // Add months with equity transactions after threshold
+    for (const tx of transactions.filter(t => t.security_type === 'EQ' && (t.transaction_type === 'Bought' || t.transaction_type === 'Sold'))) {
+      const txDate = new Date(tx.transaction_date);
+      if (txDate >= thresholdWeekStart) {
+        const monthKey = `${txDate.getFullYear()}-${String(txDate.getMonth() + 1).padStart(2, '0')}`;
+        allMonths.add(monthKey);
+      }
+    }
+    
+    // 2) Calculate monthly data
+    const monthlyAtRiskSnapshot = new Map<string, number>();
+    const monthlyPremium = new Map<string, number>();
+    
+    for (const monthKey of allMonths) {
+      const [year, month] = monthKey.split('-');
+      const monthEnd = new Date(parseInt(year), parseInt(month), 0); // last day of month
+      monthEnd.setHours(23, 59, 59, 999);
+      
+      // Calculate net invested up to end of month for ALL symbols
+      const symbolNetInvested = new Map<string, number>();
+      
+      for (const tx of transactions.filter(t => t.security_type === 'EQ' && (t.transaction_type === 'Bought' || t.transaction_type === 'Sold'))) {
+        const txDate = new Date(tx.transaction_date);
+        if (txDate > monthEnd) continue;
+        
+        const qty = Math.abs(Number(tx.quantity) || 0);
+        if (qty % 100 !== 0) continue; // only multiples of 100
+        
+        const sym = tx.calculated_symbol?.trim();
+        if (!sym || (selectedSymbol !== 'ALL' && sym !== selectedSymbol)) continue;
+        
+        const currentNet = symbolNetInvested.get(sym) || 0;
+        const amount = Number(tx.amount) || 0;
+        symbolNetInvested.set(sym, currentNet - amount);
+      }
+      
+      // Sum net invested for symbols with positive net investment
+      let totalAtRisk = 0;
+      for (const netInvested of symbolNetInvested.values()) {
+        if (netInvested > 0) {
+          totalAtRisk += netInvested;
+        }
+      }
+      
+      monthlyAtRiskSnapshot.set(monthKey, totalAtRisk);
+      
+      // Calculate premium for ALL option transactions this month
+      const monthStart = new Date(parseInt(year), parseInt(month) - 1, 1); // first day of month
+      const monthPremium = transactions
+        .filter(t => t.security_type === 'OPTN')
+        .filter(t => {
+          const d = new Date(t.transaction_date);
+          return d >= monthStart && d <= monthEnd;
+        })
+        .filter(t => {
+          const sym = t.calculated_symbol?.trim();
+          return sym && (selectedSymbol === 'ALL' || sym === selectedSymbol);
+        })
+        .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+      
+      monthlyPremium.set(monthKey, monthPremium);
+    }
+    
+    // Build chart data
+    const months = Array.from(allMonths).sort((a, b) => a.localeCompare(b));
+    
+    const data = months.map(mk => {
+      const atRisk = monthlyAtRiskSnapshot.get(mk) || 0;
+      const premium = monthlyPremium.get(mk) || 0;
+      const pct = atRisk > 0 ? (premium / atRisk) * 100 : 0;
+      const [year, month] = mk.split('-');
+      const monthName = new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      return { month: mk, monthName, pct, premium, atRisk };
+    });
+
+    return data;
+  })();
+
   // Calculate summary metrics
   const totalPremiumCollected = monthlyData.reduce((sum, data) => sum + data.premiumCollected, 0);
   const totalRealizedGain = monthlyData.reduce((sum, data) => sum + data.realizedGain, 0);
@@ -243,7 +652,372 @@ export function Performance() {
   return (
     <div className="space-y-6">
       <h1 className="text-3xl font-bold">Performance Analysis</h1>
+
+      {/* Net Premium as % of At-Risk Equity by Week and Month */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Weekly Chart - 2/3 width */}
+        <div className="lg:col-span-2 bg-white p-6 rounded-lg shadow">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+            <h3 className="text-lg font-semibold">Weekly Net Premium as % of At-Risk Equity</h3>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600" htmlFor="symbolFilter2">Symbol:</label>
+              {/* reuse same selectedSymbol state */}
+              <select
+                id="symbolFilter2"
+                className="border border-gray-300 rounded px-2 py-1 text-sm"
+                value={selectedSymbol}
+                onChange={(e) => setSelectedSymbol(e.target.value)}
+              >
+                <option value="ALL">All</option>
+                {optionSymbols.map(sym => (
+                  <option key={`pct-${sym}`} value={sym}>{sym}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={weeklyPremiumPctData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="week" tickFormatter={(v) => {
+                const d = new Date(v + 'T00:00:00');
+                return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              }} />
+              <YAxis tickFormatter={(v) => `${v}%`} />
+              <Tooltip content={({ active, label, payload }) => {
+                if (!active || !payload || payload.length === 0) return null;
+                const datum = (payload[0] as any)?.payload as { pct: number; premium: number; atRisk: number } | undefined;
+                const start = new Date(String(label) + 'T00:00:00');
+                const end = new Date(start);
+                end.setDate(start.getDate() + 6);
+                const pct = datum?.pct ?? 0;
+                const premium = datum?.premium ?? 0;
+                const atRisk = datum?.atRisk ?? 0;
+                return (
+                  <div className="bg-white border border-gray-200 rounded p-3 shadow text-sm">
+                    <div className="font-medium text-gray-800 mb-1">
+                      {`${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
+                    </div>
+                    <div className="flex justify-between gap-6">
+                      <span className="text-gray-600">Premium % of At-Risk</span>
+                      <span className="font-semibold">{pct.toFixed(2)}%</span>
+                    </div>
+                    <div className="flex justify-between gap-6">
+                      <span className="text-gray-600">Net Premium</span>
+                      <span className="font-semibold">${premium.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between gap-6">
+                      <span className="text-gray-600">At-Risk (Week End)</span>
+                      <span className="font-semibold">${atRisk.toFixed(2)}</span>
+                    </div>
+                  </div>
+                );
+              }} />
+              <Legend />
+              <Bar dataKey="pct" name="Premium % of At-Risk" fill="#34d399" />
+            </BarChart>
+          </ResponsiveContainer>
+          <p className="mt-2 text-xs text-gray-500">Weeks start on Sunday. At-Risk = net equity cost basis for all symbols.</p>
+        </div>
+
+        {/* Monthly Chart - 1/3 width */}
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex flex-col gap-3 mb-4">
+            <h3 className="text-lg font-semibold">Monthly Net Premium as % of At-Risk Equity</h3>
+          </div>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={monthlyPremiumPctData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="monthName" angle={-45} textAnchor="end" height={80} fontSize={12} />
+              <YAxis tickFormatter={(v) => `${v}%`} />
+              <Tooltip content={({ active, label, payload }) => {
+                if (!active || !payload || payload.length === 0) return null;
+                const datum = (payload[0] as any)?.payload as { pct: number; premium: number; atRisk: number; monthName: string } | undefined;
+                const pct = datum?.pct ?? 0;
+                const premium = datum?.premium ?? 0;
+                const atRisk = datum?.atRisk ?? 0;
+                const monthName = datum?.monthName ?? String(label);
+                return (
+                  <div className="bg-white border border-gray-200 rounded p-3 shadow text-sm">
+                    <div className="font-medium text-gray-800 mb-1">
+                      {monthName}
+                    </div>
+                    <div className="flex justify-between gap-6">
+                      <span className="text-gray-600">Premium % of At-Risk</span>
+                      <span className="font-semibold">{pct.toFixed(2)}%</span>
+                    </div>
+                    <div className="flex justify-between gap-6">
+                      <span className="text-gray-600">Net Premium</span>
+                      <span className="font-semibold">${premium.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between gap-6">
+                      <span className="text-gray-600">At-Risk (Month End)</span>
+                      <span className="font-semibold">${atRisk.toFixed(2)}</span>
+                    </div>
+                  </div>
+                );
+              }} />
+              <Legend />
+              <Bar dataKey="pct" name="Premium % of At-Risk" fill="#60a5fa" />
+            </BarChart>
+          </ResponsiveContainer>
+          <p className="mt-2 text-xs text-gray-500">At-Risk = net equity cost basis for all symbols.</p>
+        </div>
+      </div>
+
+      {/* Net Premium Flow by Week and Month */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Weekly Net Premium Chart - 2/3 width */}
+        <div className="lg:col-span-2 bg-white p-6 rounded-lg shadow">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+            <h3 className="text-lg font-semibold">Net Premium Flow by Week</h3>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600" htmlFor="symbolFilter">Symbol:</label>
+              <select
+                id="symbolFilter"
+                className="border border-gray-300 rounded px-2 py-1 text-sm"
+                value={selectedSymbol}
+                onChange={(e) => setSelectedSymbol(e.target.value)}
+              >
+                <option value="ALL">All</option>
+                {optionSymbols.map(sym => (
+                  <option key={sym} value={sym}>{sym}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={weeklyNetPremiumData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="week" tickFormatter={(v) => {
+                const d = new Date(v + 'T00:00:00');
+                return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              }} />
+              <YAxis />
+              <Tooltip formatter={(value: number) => [`$${value.toFixed(2)}`, 'Net Premium']} labelFormatter={(label: string) => {
+                const d = new Date(label + 'T00:00:00');
+                const end = new Date(d);
+                end.setDate(d.getDate() + 6);
+                return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+              }} />
+              <Legend />
+              <Bar dataKey="netPremium" name="Net Premium">
+                {weeklyNetPremiumData.map((entry, idx) => (
+                  <Cell key={`cell-${idx}`} fill={entry.netPremium >= 0 ? '#82ca9d' : '#f87171'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <p className="mt-2 text-xs text-gray-500">Weeks start on Sunday. Showing data from week of Feb 20, 2025 onward.</p>
+        </div>
+
+        {/* Monthly Net Premium Chart - 1/3 width */}
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex flex-col gap-3 mb-4">
+            <h3 className="text-lg font-semibold">Net Premium Flow by Month</h3>
+          </div>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={monthlyNetPremiumData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="monthName" angle={-45} textAnchor="end" height={80} fontSize={12} />
+              <YAxis />
+              <Tooltip formatter={(value: number) => [`$${(value as number).toFixed(2)}`, 'Net Premium']} labelFormatter={(label: string) => label} />
+              <Legend />
+              <Bar dataKey="netPremium" name="Net Premium">
+                {monthlyNetPremiumData.map((entry, idx) => (
+                  <Cell key={`cell-monthly-${idx}`} fill={entry.netPremium >= 0 ? '#60a5fa' : '#f87171'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <p className="mt-2 text-xs text-gray-500">Monthly option premium flow since Feb 2025.</p>
+        </div>
+      </div>
       
+      {/* Totals tables (side by side) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white p-6 rounded-lg shadow">
+          <h3 className="text-lg font-semibold mb-4">Total Net Premium by Month (since Feb 1, 2025)</h3>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Net Premium</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {totalByMonthData.map(row => (
+                  <tr key={row.period} className="hover:bg-gray-50">
+                    <td className="px-4 py-2 text-sm text-gray-900">{row.period}</td>
+                    <td className={`px-4 py-2 text-sm font-medium ${row.total >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      ${row.total.toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+                {totalByMonthData.length === 0 && (
+                  <tr>
+                    <td colSpan={2} className="px-4 py-3 text-sm text-gray-500 text-center">No data</td>
+                  </tr>
+                )}
+              </tbody>
+              <tfoot className="bg-gray-50">
+                <tr>
+                  <td className="px-4 py-2 text-sm font-medium text-gray-700">Average Net Monthly Premium</td>
+                  <td className={`px-4 py-2 text-sm font-semibold ${avgNetMonthlyPremium >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                    ${avgNetMonthlyPremium.toFixed(2)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-lg shadow">
+          <h3 className="text-lg font-semibold mb-4">Total Net Premium by Week (since Feb 1, 2025)</h3>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Week</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Net Premium</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {totalByWeekData.map(row => (
+                  <tr key={row.period} className="hover:bg-gray-50">
+                    <td className="px-4 py-2 text-sm text-gray-900">{row.period}</td>
+                    <td className={`px-4 py-2 text-sm font-medium ${row.total >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      ${row.total.toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+                {totalByWeekData.length === 0 && (
+                  <tr>
+                    <td colSpan={2} className="px-4 py-3 text-sm text-gray-500 text-center">No data</td>
+                  </tr>
+                )}
+              </tbody>
+              <tfoot className="bg-gray-50">
+                <tr>
+                  <td className="px-4 py-2 text-sm font-medium text-gray-700">Average Net Weekly Premium</td>
+                  <td className={`px-4 py-2 text-sm font-semibold ${avgNetWeeklyPremium >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                    ${avgNetWeeklyPremium.toFixed(2)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Net ROI by Week (all transactions) */}
+      <div className="bg-white p-6 rounded-lg shadow">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+          <h3 className="text-lg font-semibold">Net ROI by Week</h3>
+          {/* Uses the same symbol filter select above */}
+        </div>
+        <ResponsiveContainer width="100%" height={280}>
+          <BarChart data={weeklyRoiData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="week" tickFormatter={(v) => {
+              const d = new Date(v + 'T00:00:00');
+              return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            }} />
+            <YAxis tickFormatter={(v) => `${v}%`} />
+            <Tooltip formatter={(value: number) => [`${(value as number).toFixed(2)}%`, 'Net ROI']} labelFormatter={(label: string) => {
+              const d = new Date(label + 'T00:00:00');
+              const end = new Date(d);
+              end.setDate(d.getDate() + 6);
+              return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+            }} />
+            <Legend />
+            <Bar dataKey="roiPct" name="Net ROI">
+              {weeklyRoiData.map((entry, idx) => (
+                <Cell key={`cell-roi-${idx}`} fill={entry.roiPct >= 0 ? '#60a5fa' : '#f87171'} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+        <p className="mt-2 text-xs text-gray-500">Weeks start on Sunday. Same symbol filter applies.</p>
+      </div>
+
+      {/* ROI tables (side by side) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white p-6 rounded-lg shadow">
+          <h3 className="text-lg font-semibold mb-4">Net ROI by Month (since Feb 1, 2025)</h3>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Net ROI</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {roiByMonthData.map(row => (
+                  <tr key={row.period} className="hover:bg-gray-50">
+                    <td className="px-4 py-2 text-sm text-gray-900">{row.period}</td>
+                    <td className={`px-4 py-2 text-sm font-medium ${row.roiPct >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {row.roiPct.toFixed(2)}%
+                    </td>
+                  </tr>
+                ))}
+                {roiByMonthData.length === 0 && (
+                  <tr>
+                    <td colSpan={2} className="px-4 py-3 text-sm text-gray-500 text-center">No data</td>
+                  </tr>
+                )}
+              </tbody>
+              <tfoot className="bg-gray-50">
+                <tr>
+                  <td className="px-4 py-2 text-sm font-medium text-gray-700">Average Monthly ROI</td>
+                  <td className={`px-4 py-2 text-sm font-semibold ${avgMonthlyROI >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                    {avgMonthlyROI.toFixed(2)}%
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-lg shadow">
+          <h3 className="text-lg font-semibold mb-4">Net ROI by Week (since Feb 1, 2025)</h3>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Week</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Net ROI</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {roiByWeekData.map(row => (
+                  <tr key={row.period} className="hover:bg-gray-50">
+                    <td className="px-4 py-2 text-sm text-gray-900">{row.period}</td>
+                    <td className={`px-4 py-2 text-sm font-medium ${row.roiPct >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {row.roiPct.toFixed(2)}%
+                    </td>
+                  </tr>
+                ))}
+                {roiByWeekData.length === 0 && (
+                  <tr>
+                    <td colSpan={2} className="px-4 py-3 text-sm text-gray-500 text-center">No data</td>
+                  </tr>
+                )}
+              </tbody>
+              <tfoot className="bg-gray-50">
+                <tr>
+                  <td className="px-4 py-2 text-sm font-medium text-gray-700">Average Weekly ROI</td>
+                  <td className={`px-4 py-2 text-sm font-semibold ${avgWeeklyROI >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                    {avgWeeklyROI.toFixed(2)}%
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-lg shadow">

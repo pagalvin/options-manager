@@ -14,6 +14,7 @@ import analyzerRoutes from './routes/analyzer';
 import strikePriceRoutes from './routes/strikePrice';
 import manualOptionsAnalysisRoutes from './routes/manualOptionsAnalysis';
 import etradeRoutes from './routes/etrade';
+import chainAdminRoutes from './routes/chainAdmin';
 
 // Load environment variables
 dotenv.config();
@@ -40,6 +41,8 @@ app.use('/api/analyzer', analyzerRoutes);
 app.use('/api/strike-price', strikePriceRoutes);
 app.use('/api/manual-options-analysis', manualOptionsAnalysisRoutes);
 app.use('/api/etrade', etradeRoutes);
+app.use('/api/chain-admin', chainAdminRoutes);
+app.use('/api/price', stockPriceRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req: express.Request, res: express.Response) => {

@@ -23,10 +23,13 @@ export function SymbolDetail() {
   const [error, setError] = useState<string>('');
   const [manualStrikePrice, setManualStrikePrice] = useState<number | null>(null);
   const [manualOptionContracts, setManualOptionContracts] = useState<number | null>(null);
+  const [recommendedWeeklyPremium, setRecommendedWeeklyPremium] = useState<number | null>(null);
   const [editingStrike, setEditingStrike] = useState(false);
   const [editingContracts, setEditingContracts] = useState(false);
+  const [editingPremium, setEditingPremium] = useState(false);
   const [strikeInputValue, setStrikeInputValue] = useState('');
   const [contractsInputValue, setContractsInputValue] = useState('');
+  const [premiumInputValue, setPremiumInputValue] = useState('');
 
   const fetchTransactions = async () => {
     if (!symbol) return;
@@ -57,8 +60,10 @@ export function SymbolDetail() {
         // Ensure we convert to number or set to null
         const strikePrice = data.manualAverageStrikePrice;
         const contracts = data.manualOptionContracts;
+        const weeklyPremium = data.recommendedWeeklyPremium;
         setManualStrikePrice(strikePrice ? parseFloat(String(strikePrice)) : null);
         setManualOptionContracts(contracts ? parseInt(String(contracts)) : null);
+        setRecommendedWeeklyPremium(weeklyPremium ? parseFloat(String(weeklyPremium)) : null);
       }
     } catch (error) {
       console.error('Error fetching manual values:', error);
@@ -124,7 +129,8 @@ export function SymbolDetail() {
         },
         body: JSON.stringify({ 
           averageStrikePrice: manualStrikePrice,
-          optionContracts: value 
+          optionContracts: value,
+          recommendedWeeklyPremium: recommendedWeeklyPremium
         }),
       });
       
@@ -141,6 +147,44 @@ export function SymbolDetail() {
   const handleContractCancel = () => {
     setEditingContracts(false);
     setContractsInputValue('');
+  };
+
+  const handlePremiumEdit = () => {
+    setEditingPremium(true);
+    setPremiumInputValue(recommendedWeeklyPremium?.toString() || '');
+  };
+
+  const handlePremiumSave = async () => {
+    if (!symbol) return;
+    
+    try {
+      const value = premiumInputValue !== '' ? parseFloat(premiumInputValue) : null;
+      
+      const response = await fetch(`http://localhost:3001/api/strike-price/symbol/${symbol}/strike-price`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          averageStrikePrice: manualStrikePrice,
+          optionContracts: manualOptionContracts,
+          recommendedWeeklyPremium: value 
+        }),
+      });
+      
+      if (response.ok) {
+        setRecommendedWeeklyPremium(value);
+        setEditingPremium(false);
+        setPremiumInputValue('');
+      }
+    } catch (error) {
+      console.error('Error saving recommended weekly premium:', error);
+    }
+  };
+
+  const handlePremiumCancel = () => {
+    setEditingPremium(false);
+    setPremiumInputValue('');
   };
 
   // Calculate realized and unrealized gains
@@ -191,11 +235,6 @@ export function SymbolDetail() {
     
     // Calculate realized gains from option transactions
     let optionRealizedGain = 0;
-    
-    // Debug logging for CLSK
-    if (symbol === 'CLSK') {
-      console.log('CLSK Option Transactions:', optionTransactions);
-    }
     
     optionTransactions.forEach(transaction => {
       const quantity = parseFloat(String(transaction.quantity));
@@ -399,7 +438,7 @@ export function SymbolDetail() {
       </div>
 
       {/* Position Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-8 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-9 gap-4">
         <div className="bg-white p-4 rounded-lg shadow border">
           <div className="text-sm font-medium text-gray-500">Current Shares</div>
           <div className="text-2xl font-bold text-gray-900">
@@ -523,6 +562,48 @@ export function SymbolDetail() {
           <div className="text-sm font-medium text-gray-500">Net Premium Collected</div>
           <div className={`text-2xl font-bold ${netPremiumCollected >= 0 ? 'text-green-600' : 'text-red-600'}`}>
             ${netPremiumCollected.toFixed(2)}
+          </div>
+        </div>
+        
+        <div className="bg-white p-4 rounded-lg shadow border">
+          <div className="text-sm font-medium text-gray-500">Recommended Weekly Premium</div>
+          <div className="flex items-center space-x-2">
+            {editingPremium ? (
+              <div className="flex items-center space-x-2">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={premiumInputValue}
+                  onChange={(e) => setPremiumInputValue(e.target.value)}
+                  className="text-lg font-bold text-gray-900 border rounded px-2 py-1 w-20"
+                  placeholder="0.00"
+                />
+                <button
+                  onClick={handlePremiumSave}
+                  className="text-green-600 hover:text-green-800 text-sm"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={handlePremiumCancel}
+                  className="text-gray-600 hover:text-gray-800 text-sm"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center space-x-2">
+                <div className="text-2xl font-bold text-blue-600">
+                  {recommendedWeeklyPremium !== null ? `$${recommendedWeeklyPremium.toFixed(2)}` : 'N/A'}
+                </div>
+                <button
+                  onClick={handlePremiumEdit}
+                  className="text-blue-600 hover:text-blue-800 text-sm"
+                >
+                  Edit
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

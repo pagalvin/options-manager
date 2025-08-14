@@ -224,8 +224,11 @@ export class TransactionService {
 
     if (optionResult.rows.length === 0) {
       // Create new option
-      const premiumCollected = transaction.transactionType === 'Sold Short' ? amount : 0;
-      const premiumPaid = transaction.transactionType === 'Bought To Cover' ? Math.abs(amount) : 0;
+      const isSold = transaction.transactionType.startsWith('Sold');
+      const isBought = transaction.transactionType.startsWith('Bought');
+
+      const premiumCollected = isSold ? amount : 0;
+      const premiumPaid = isBought ? Math.abs(amount) : 0;
 
       const insertQuery = `
         INSERT INTO options (
@@ -253,17 +256,25 @@ export class TransactionService {
       let newPremiumPaid = parseFloat(option.premium_paid) || 0;
       let status = option.status;
 
-      if (transaction.transactionType === 'Sold Short') {
-        newQuantity += quantity;
+      const isSold = transaction.transactionType.startsWith('Sold');
+      const isBought = transaction.transactionType.startsWith('Bought');
+
+      if (isSold) {
+        newQuantity += quantity; // quantity is negative, so this adds to the short position
         newPremiumCollected += amount;
-      } else if (transaction.transactionType === 'Bought To Cover') {
-        newQuantity -= quantity;
+      } else if (isBought) {
+        newQuantity += quantity; // quantity is positive, so this reduces the short position
         newPremiumPaid += Math.abs(amount);
-        if (newQuantity <= 0) {
-          status = 'CLOSED';
-        }
       } else if (transaction.transactionType === 'Option Assigned') {
         status = 'ASSIGNED';
+        newQuantity = 0; // Position is closed on assignment
+      }
+
+      // Update status based on quantity
+      if (newQuantity === 0) {
+        status = 'CLOSED';
+      } else {
+        status = 'OPEN';
       }
 
       const updateQuery = `

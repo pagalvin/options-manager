@@ -164,6 +164,35 @@ router.get('/quote/:symbol', async (req, res) => {
   }
 });
 
+// Get simple current price success indicator
+router.get('/api/price/:symbol', async (req, res) => {
+
+  console.log(`etrade.ts: /api/price/${req.params.symbol} called`);
+  
+  try {
+    const { symbol } = req.params;
+    const sessionId = req.headers['x-session-id'] as string;
+
+    if (!sessionId) {
+      return res.status(401).json({ symbol, didSucceed: false, error: 'Session ID required' });
+    }
+
+    if (!etradeService.isAuthenticated(sessionId)) {
+      return res.status(401).json({ symbol, didSucceed: false, error: 'Not authenticated' });
+    }
+
+    const quote = await etradeService.getStockQuote(sessionId, symbol);
+
+    const lastTrade = quote?.quoteResponse?.quoteData?.[0]?.all?.lastTrade;
+    const didSucceed = typeof lastTrade === 'number' && !Number.isNaN(lastTrade);
+
+    return res.json({ lastTrade, symbol, didSucceed });
+  } catch (error) {
+    console.error('Error getting simple price indicator:', error);
+    return res.status(500).json({ symbol: req.params.symbol, didSucceed: false });
+  }
+});
+
 // Product lookup
 router.get('/lookup/:search', async (req, res) => {
   try {
@@ -249,6 +278,225 @@ router.get('/options/:symbol/expirations', async (req, res) => {
     console.error('Error getting expiration dates:', error);
     res.status(500).json({ 
       error: 'Failed to get expiration dates',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Combined endpoint: if called with ?symbol=XYZ, return quote and first available option chain
+router.get('/', async (req, res) => {
+  try {
+    const qSymbol = (req.query.symbol as string | undefined)?.trim();
+    if (!qSymbol) {
+      return res.json({ ok: true });
+    }
+
+    const symbol = qSymbol.toUpperCase();
+    const sessionId = req.headers['x-session-id'] as string;
+
+    if (!sessionId) {
+      return res.status(401).json({ error: 'Session ID required' });
+    }
+
+    if (!etradeService.isAuthenticated(sessionId)) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    // Fetch quote and expirations in parallel
+    const [quote, expirations] = await Promise.all([
+      etradeService.getStockQuote(sessionId, symbol),
+      etradeService.getOptionExpirationDates(sessionId, symbol, 'ALL')
+    ]);
+
+    // Pick earliest expiration by date if available
+    let selectedExpiration: { year: number; month: number; day: number; expiryType: string } | null = null;
+    let optionChain: any = null;
+
+    if (Array.isArray(expirations) && expirations.length > 0) {
+      const sorted = [...expirations].sort((a, b) => {
+        const da = new Date(a.year, a.month - 1, a.day).getTime();
+        const db = new Date(b.year, b.month - 1, b.day).getTime();
+        return da - db;
+      });
+      selectedExpiration = sorted[0];
+
+      // Fetch option chain for the selected expiration
+      optionChain = await etradeService.getOptionChain(sessionId, symbol, {
+        expirationYear: String(selectedExpiration.year),
+        expirationMonth: String(selectedExpiration.month),
+        expirationDay: String(selectedExpiration.day),
+        chainType: 'CALLPUT',
+      });
+    }
+
+    return res.json({
+      symbol,
+      quote,
+      expirationDates: expirations,
+      selectedExpiration,
+      optionChain,
+    });
+  } catch (error) {
+    console.error('Error in combined E*TRADE request:', error);
+    res.status(500).json({ 
+      error: 'Failed to get combined E*TRADE data',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Get user accounts
+router.get('/accounts', async (req, res) => {
+  try {
+    const sessionId = req.headers['x-session-id'] as string;
+
+    if (!sessionId) {
+      return res.status(401).json({ error: 'Session ID required' });
+    }
+
+    if (!etradeService.isAuthenticated(sessionId)) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const accounts = await etradeService.getAccountList(sessionId);
+    res.json(accounts);
+  } catch (error) {
+    console.error('Error getting accounts:', error);
+    res.status(500).json({ 
+      error: 'Failed to get accounts',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Get account transactions
+router.get('/accounts/:accountIdKey/transactions', async (req, res) => {
+  try {
+    const { accountIdKey } = req.params;
+    const { symbol, startDate, endDate, count, sortOrder, marker } = req.query;
+    const sessionId = req.headers['x-session-id'] as string;
+
+    if (!sessionId) {
+      return res.status(401).json({ error: 'Session ID required' });
+    }
+
+    if (!etradeService.isAuthenticated(sessionId)) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    const transactions = await etradeService.getTransactions(sessionId, accountIdKey, {
+      startDate: startDate as string,
+      endDate: endDate as string,
+      sortOrder: sortOrder as 'ASC' | 'DESC',
+      marker: marker as string,
+      count: count ? parseInt(count as string) : undefined
+    });
+    
+    // Filter by symbol if provided (since API doesn't support it directly)
+    let filteredTransactions = transactions;
+    if (symbol && transactions.Transaction) {
+      const symbolFilter = (symbol as string).toUpperCase();
+      filteredTransactions = {
+        ...transactions,
+        Transaction: transactions.Transaction.filter(
+          (transaction: any) => {
+            // Check if transaction involves the specified symbol
+            const productSymbol = transaction.brokerage?.product?.symbol?.toUpperCase() || '';
+            const displaySymbol = transaction.brokerage?.displaySymbol?.toUpperCase() || '';
+            const description = transaction.description?.toUpperCase() || '';
+            
+            return productSymbol === symbolFilter || 
+                   displaySymbol.includes(symbolFilter) || 
+                   description.includes(symbolFilter);
+          }
+        )
+      };
+    }
+    
+    res.json(filteredTransactions);
+  } catch (error) {
+    console.error('Error getting account transactions:', error);
+    res.status(500).json({ 
+      error: 'Failed to get account transactions',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Get ALL account transactions (handles pagination automatically)
+router.get('/accounts/:accountIdKey/transactions/all', async (req, res) => {
+  try {
+    const { accountIdKey } = req.params;
+    const { symbol, startDate, endDate, sortOrder, maxPages, pageDelay } = req.query;
+    const sessionId = req.headers['x-session-id'] as string;
+
+    if (!sessionId) {
+      return res.status(401).json({ error: 'Session ID required' });
+    }
+
+    if (!etradeService.isAuthenticated(sessionId)) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    const transactions = await etradeService.getAllTransactions(sessionId, accountIdKey, {
+      startDate: startDate as string,
+      endDate: endDate as string,
+      sortOrder: sortOrder as 'ASC' | 'DESC',
+      maxPages: maxPages ? parseInt(maxPages as string) : undefined,
+      pageDelay: pageDelay ? parseInt(pageDelay as string) : undefined
+    });
+    
+    // Filter by symbol if provided (since API doesn't support it directly)
+    let filteredTransactions = transactions;
+    if (symbol && transactions.Transaction) {
+      const symbolFilter = (symbol as string).toUpperCase();
+      filteredTransactions = {
+        ...transactions,
+        Transaction: transactions.Transaction.filter(
+          (transaction: any) => {
+            // Check if transaction involves the specified symbol
+            const productSymbol = transaction.brokerage?.product?.symbol?.toUpperCase() || '';
+            const displaySymbol = transaction.brokerage?.displaySymbol?.toUpperCase() || '';
+            const description = transaction.description?.toUpperCase() || '';
+            
+            return productSymbol === symbolFilter || 
+                   displaySymbol.includes(symbolFilter) || 
+                   description.includes(symbolFilter);
+          }
+        )
+      };
+    }
+    
+    res.json(filteredTransactions);
+  } catch (error) {
+    console.error('Error getting all account transactions:', error);
+    res.status(500).json({ 
+      error: 'Failed to get all account transactions',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Get transaction details
+router.get('/accounts/:accountIdKey/transactions/:transactionId', async (req, res) => {
+  try {
+    const { accountIdKey, transactionId } = req.params;
+    const sessionId = req.headers['x-session-id'] as string;
+
+    if (!sessionId) {
+      return res.status(401).json({ error: 'Session ID required' });
+    }
+
+    if (!etradeService.isAuthenticated(sessionId)) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const details = await etradeService.getTransactionDetails(sessionId, accountIdKey, transactionId);
+    res.json(details);
+  } catch (error) {
+    console.error('Error getting transaction details:', error);
+    res.status(500).json({ 
+      error: 'Failed to get transaction details',
       message: error instanceof Error ? error.message : 'Unknown error'
     });
   }

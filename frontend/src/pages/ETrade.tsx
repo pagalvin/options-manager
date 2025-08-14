@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
-import { AlertCircle, CheckCircle2, RefreshCw, TrendingUp, TrendingDown, Calendar, DollarSign, Target, Activity, Info, BarChart3 } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { AlertCircle, CheckCircle2, RefreshCw, TrendingUp, TrendingDown, Calendar, DollarSign, Target, Activity, Info, BarChart3, FileText } from 'lucide-react';
+import { FinancialLinks } from '@/components/FinancialLinks';
+import { TransactionBrowser } from '@/components/TransactionBrowser';
 
 interface StockQuote {
   QuoteResponse: {
@@ -146,6 +149,15 @@ export function ETradePage() {
   const [environment, setEnvironment] = useState<'SANDBOX' | 'LIVE'>('SANDBOX');
   const [environmentLoading, setEnvironmentLoading] = useState(false);
   const [credentialsAvailable, setCredentialsAvailable] = useState(true);
+  const [showFullChain, setShowFullChain] = useState(false);
+  
+  // Submenu state
+  const [activeSubmenu, setActiveSubmenu] = useState<'quotes' | 'transactions'>('quotes');
+  
+  // Read query params (e.g., ?symbol=DVN)
+  const [searchParams] = useSearchParams();
+  const [autoInitDone, setAutoInitDone] = useState(false);
+  const [autoFetchChain, setAutoFetchChain] = useState(false);
 
   // Check existing authentication status
   useEffect(() => {
@@ -158,12 +170,53 @@ export function ETradePage() {
     loadEnvironment();
   }, []);
 
+  // If symbol query param exists, set it once on mount
+  useEffect(() => {
+    const qp = searchParams.get('symbol');
+    if (qp && !autoInitDone) {
+      setSymbol(qp.toUpperCase());
+    }
+  }, [searchParams, autoInitDone]);
+
   // Store session ID in localStorage when authenticated
   useEffect(() => {
     if (sessionId) {
       localStorage.setItem('etrade_session_id', sessionId);
     }
   }, [sessionId]);
+
+  // After authenticated and if a query param symbol exists, auto fetch quote and expirations
+  useEffect(() => {
+    const qp = searchParams.get('symbol');
+    if (!qp) return;
+    if (!authenticated || !sessionId) return;
+    if (autoInitDone) return;
+
+    const run = async () => {
+      try {
+        const upper = qp.toUpperCase();
+        setSymbol(upper);
+        await Promise.all([
+          fetchStockQuote(),
+          fetchExpirationDates()
+        ]);
+        // Once expirations are loaded (selectedExpiration set to first), trigger chain fetch in next effect
+        setAutoFetchChain(true);
+      } finally {
+        setAutoInitDone(true);
+      }
+    };
+
+    run();
+  }, [authenticated, sessionId, searchParams, autoInitDone]);
+
+  // Once we have a selected expiration and were auto-initializing, fetch the first option chain
+  useEffect(() => {
+    if (!autoFetchChain) return;
+    if (!selectedExpiration) return;
+    fetchOptionChain();
+    setAutoFetchChain(false);
+  }, [autoFetchChain, selectedExpiration]);
 
   const loadEnvironment = async () => {
     try {
@@ -623,74 +676,111 @@ export function ETradePage() {
     );
   }
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col space-y-4">
-        <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold">E*TRADE Integration</h1>
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2 text-green-600">
-              <CheckCircle2 size={20} />
-              <span className="text-sm">Connected to E*TRADE</span>
-            </div>
-            <button
-              onClick={logout}
-              className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-            >
-              Disconnect
-            </button>
-          </div>
-        </div>
-        
-        {/* Environment Toggle */}
-        <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg">
-          <div className="flex items-center space-x-3">
-            <span className="text-sm font-medium text-gray-700">API Environment:</span>
-            <div className="flex items-center space-x-2">
-              <span className={`text-sm font-medium ${environment === 'SANDBOX' ? 'text-blue-600' : 'text-gray-500'}`}>
-                SANDBOX
-              </span>
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col space-y-4">
+          <div className="flex justify-between items-center">
+            <h1 className="text-3xl font-bold">E*TRADE Integration</h1>
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2 text-green-600">
+                <CheckCircle2 size={20} />
+                <span className="text-sm">Connected to E*TRADE</span>
+              </div>
               <button
-                onClick={() => !environmentLoading && switchEnvironment(environment === 'SANDBOX' ? false : true)}
-                disabled={environmentLoading}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  environment === 'LIVE' 
-                    ? 'bg-red-600' 
-                    : 'bg-blue-600'
-                } ${environmentLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                onClick={logout}
+                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
               >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    environment === 'LIVE' ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
+                Disconnect
               </button>
-              <span className={`text-sm font-medium ${environment === 'LIVE' ? 'text-red-600' : 'text-gray-500'}`}>
-                LIVE
-              </span>
             </div>
           </div>
-          <div className="text-xs text-gray-500">
-            {environment === 'SANDBOX' 
-              ? 'Using test environment with fake data' 
-              : 'Using live trading environment with real market data'}
-            {!credentialsAvailable && (
-              <span className="text-red-600 font-medium"> - No credentials configured</span>
-            )}
+          
+          {/* Environment Toggle */}
+          <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg">
+            <div className="flex items-center space-x-3">
+              <span className="text-sm font-medium text-gray-700">API Environment:</span>
+              <div className="flex items-center space-x-2">
+                <span className={`text-sm font-medium ${environment === 'SANDBOX' ? 'text-blue-600' : 'text-gray-500'}`}>
+                  SANDBOX
+                </span>
+                <button
+                  onClick={() => !environmentLoading && switchEnvironment(environment === 'SANDBOX' ? false : true)}
+                  disabled={environmentLoading}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    environment === 'LIVE' 
+                      ? 'bg-red-600' 
+                      : 'bg-blue-600'
+                  } ${environmentLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      environment === 'LIVE' ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+                <span className={`text-sm font-medium ${environment === 'LIVE' ? 'text-red-600' : 'text-gray-500'}`}>
+                  LIVE
+                </span>
+              </div>
+            </div>
+            <div className="text-xs text-gray-500">
+              {environment === 'SANDBOX' 
+                ? 'Using test environment with fake data' 
+                : 'Using live trading environment with real market data'}
+              {!credentialsAvailable && (
+                <span className="text-red-600 font-medium"> - No credentials configured</span>
+              )}
+            </div>
+          </div>
+
+          {/* Submenu Tabs */}
+          <div className="bg-white rounded-lg shadow">
+            <div className="border-b border-gray-200">
+              <nav className="-mb-px flex space-x-8 px-6">
+                <button
+                  onClick={() => setActiveSubmenu('quotes')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeSubmenu === 'quotes'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    <BarChart3 size={16} />
+                    <span>Quotes & Options</span>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setActiveSubmenu('transactions')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeSubmenu === 'transactions'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    <FileText size={16} />
+                    <span>Transactions</span>
+                  </div>
+                </button>
+              </nav>
+            </div>
           </div>
         </div>
-      </div>
 
-      {error && (
-        <div className="bg-red-100 text-red-700 p-3 rounded flex items-center space-x-2">
-          <AlertCircle size={20} />
-          <span>{error}</span>
-        </div>
-      )}
+        {error && (
+          <div className="bg-red-100 text-red-700 p-3 rounded flex items-center space-x-2">
+            <AlertCircle size={20} />
+            <span>{error}</span>
+          </div>
+        )}
 
-      {/* Symbol Input */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h2 className="text-xl font-semibold mb-4">Stock Quote & Option Chain</h2>
+        {/* Content based on active submenu */}
+        {activeSubmenu === 'quotes' ? (
+          <div className="space-y-6">
+            {/* Symbol Input */}
+            <div className="bg-white p-6 rounded-lg shadow">
+              <h2 className="text-xl font-semibold mb-4">Stock Quote & Option Chain</h2>
         
         <form onSubmit={handleSymbolSubmit} className="flex space-x-4 mb-4">
           <input
@@ -715,7 +805,10 @@ export function ETradePage() {
           <div className="border rounded-lg p-6 mb-6 bg-gradient-to-r from-blue-50 to-indigo-50">
             <div className="flex justify-between items-start mb-6">
               <div>
-                <h3 className="text-2xl font-bold text-gray-900">{stockQuote.QuoteResponse.QuoteData[0].Product.symbol}</h3>
+                <h3 className="text-2xl font-bold text-gray-900">
+                  {stockQuote.QuoteResponse.QuoteData[0].Product.symbol}
+                  <FinancialLinks security={stockQuote.QuoteResponse.QuoteData[0].Product.symbol} />
+                  </h3>
                 <p className="text-gray-600 text-lg">{stockQuote.QuoteResponse.QuoteData[0].All.companyName}</p>
                 <p className="text-sm text-gray-500">
                   Last updated: {new Date(stockQuote.QuoteResponse.QuoteData[0].All.timeOfLastTrade * 1000).toLocaleString()}
@@ -1001,6 +1094,30 @@ export function ETradePage() {
             </div>
           </div>
 
+          {/* Options Chain Display Toggle */}
+          <div className="mb-4 flex items-center justify-between bg-gray-50 p-3 rounded-lg">
+            <div className="flex items-center space-x-3">
+              <span className="text-sm font-medium text-gray-700">Display Options:</span>
+              <label className="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showFullChain}
+                  onChange={(e) => setShowFullChain(e.target.checked)}
+                  className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-600">
+                  {showFullChain ? 'Show Full Chain' : 'Show Limited Chain (5 ITM + 5 OTM)'}
+                </span>
+              </label>
+            </div>
+            <div className="text-xs text-gray-500">
+              {showFullChain 
+                ? `Showing all ${(optionChain.optionPairs || optionChain.OptionPair || []).length} strike prices`
+                : 'Showing limited view for better focus'
+              }
+            </div>
+          </div>
+
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -1041,7 +1158,38 @@ export function ETradePage() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {(optionChain.optionPairs || optionChain.OptionPair || []).map((pair: OptionChainPair, index: number) => {
+                {(() => {
+                  const allPairs = optionChain.optionPairs || optionChain.OptionPair || [];
+                  const currentPrice = stockQuote.QuoteResponse.QuoteData[0].All.lastTrade;
+                  
+                  let filteredPairs = allPairs;
+                  
+                  if (!showFullChain) {
+                    // Sort pairs by strike price
+                    const sortedPairs = [...allPairs].sort((a, b) => {
+                      const strikeA = a.Call?.strikePrice || a.Put?.strikePrice || 0;
+                      const strikeB = b.Call?.strikePrice || b.Put?.strikePrice || 0;
+                      return strikeA - strikeB;
+                    });
+                    
+                    // Find ATM (at-the-money) index
+                    const atmIndex = sortedPairs.findIndex(pair => {
+                      const strikePrice = pair.Call?.strikePrice || pair.Put?.strikePrice || 0;
+                      return strikePrice >= currentPrice;
+                    });
+                    
+                    if (atmIndex >= 0) {
+                      // Show 5 ITM (below ATM) + ATM + 4 OTM (above ATM) = ~10 total
+                      const startIndex = Math.max(0, atmIndex - 5);
+                      const endIndex = Math.min(sortedPairs.length, atmIndex + 5);
+                      filteredPairs = sortedPairs.slice(startIndex, endIndex);
+                    } else {
+                      // Fallback: show first 10 if can't find ATM
+                      filteredPairs = sortedPairs.slice(0, 10);
+                    }
+                  }
+                  
+                  return filteredPairs.map((pair: OptionChainPair, index: number) => {
                   const currentPrice = stockQuote.QuoteResponse.QuoteData[0].All.lastTrade;
                   const strikePrice = pair.Call?.strikePrice || pair.Put?.strikePrice || 0;
                   
@@ -1173,10 +1321,224 @@ export function ETradePage() {
                       </td>
                     </tr>
                   );
-                })}
+                  });
+                })()}
               </tbody>
             </table>
           </div>
+
+          {/* 1% Gain Opportunities Analysis */}
+          {(() => {
+            const currentPrice = stockQuote.QuoteResponse.QuoteData[0].All.lastTrade;
+            
+            // Debug: Let's see what we're working with
+            const allCallOptions = (optionChain.optionPairs || optionChain.OptionPair || [])
+              .filter(pair => pair.Call)
+              .map(pair => ({
+                strike: pair.Call!.strikePrice,
+                bid: pair.Call!.bid,
+                inTheMoney: pair.Call!.inTheMoney,
+                premium: pair.Call!.bid,
+                totalRevenue: pair.Call!.strikePrice + pair.Call!.bid,
+                absoluteGain: (pair.Call!.strikePrice + pair.Call!.bid) - currentPrice,
+                gainPercent: (((pair.Call!.strikePrice + pair.Call!.bid) - currentPrice) / currentPrice) * 100
+              }));
+            
+            console.log('Current Price:', currentPrice);
+            console.log('All Call Options Debug:', allCallOptions);
+            
+            const onePercentGainOpportunities = (optionChain.optionPairs || optionChain.OptionPair || [])
+              .map(pair => {
+                const results = [];
+                
+                // Check call options (only ITM options for covered call opportunities)
+                if (pair.Call && pair.Call.inTheMoney === 'y' && pair.Call.bid > 0) {
+                  const strikePrice = pair.Call.strikePrice;
+                  const premium = pair.Call.bid; // Use bid price for conservative estimate
+                  const totalRevenue = strikePrice + premium; // Strike price + premium received
+                  const absoluteGain = totalRevenue - currentPrice; // Absolute gain from the strategy
+                  const gainPercent = (absoluteGain / currentPrice) * 100; // Absolute gain percentage
+                  
+                  console.log(`ITM Option - Strike: ${strikePrice}, Premium: ${premium}, Total: ${totalRevenue}, Current: ${currentPrice}, Absolute Gain: ${absoluteGain}, Gain %: ${gainPercent}`);
+                  
+                  if (gainPercent >= 1) { // 1% or higher absolute gain
+                    results.push({
+                      type: 'Call',
+                      option: pair.Call,
+                      strikePrice,
+                      premium,
+                      totalRevenue,
+                      gainPercent,
+                      gainAmount: absoluteGain,
+                      annualizedReturn: selectedExpiration ? (gainPercent * 365) / getDaysToExpiration(selectedExpiration) : 0
+                    });
+                  }
+                }
+                
+                return results;
+              })
+              .flat()
+              .filter(opp => opp.gainPercent >= 1) // 1% or higher absolute gain
+              .sort((a, b) => b.gainPercent - a.gainPercent);
+
+            console.log('1% Gain Opportunities Found:', onePercentGainOpportunities);
+
+            // Always show the section for debugging
+            return (
+              <div className="mt-6 bg-gradient-to-r from-emerald-50 to-green-50 p-6 rounded-lg border border-emerald-200">
+                <div className="flex items-center space-x-2 mb-4">
+                  <TrendingUp className="text-emerald-600" size={24} />
+                  <h3 className="text-xl font-semibold text-emerald-800">
+                    1%+ Gain Opportunities
+                  </h3>
+                  <div className="bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full text-sm font-medium">
+                    {onePercentGainOpportunities.length} opportunities
+                  </div>
+                </div>
+                
+                <p className="text-sm text-emerald-700 mb-4">
+                  In-the-money call options that would generate 1% or more absolute gain: ((Strike Price + Premium) - Purchase Price) ÷ Purchase Price ≥ 1%.
+                </p>
+
+                {onePercentGainOpportunities.length === 0 ? (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                    <h4 className="font-semibold text-yellow-800 mb-2">No opportunities found</h4>
+                    <div className="text-sm text-yellow-700">
+                      <div>• Current stock price: {formatCurrency(currentPrice)}</div>
+                      <div>• Total call options: {allCallOptions.length}</div>
+                      <div>• Total ITM call options: {allCallOptions.filter(opt => opt.inTheMoney === 'y').length}</div>
+                      <div>• ITM options with positive bid: {allCallOptions.filter(opt => opt.inTheMoney === 'y' && opt.bid > 0).length}</div>
+                      <div className="mt-2">
+                        <strong>Debug: ITM values found:</strong>
+                        {allCallOptions.slice(0, 5).map((opt, i) => (
+                          <div key={i} className="ml-2 text-xs">
+                            Strike ${opt.strike}: ITM="{opt.inTheMoney}", Bid=${opt.bid.toFixed(2)}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-2">
+                        <strong>Sample calculations for ITM options:</strong>
+                        {allCallOptions.filter(opt => opt.inTheMoney === 'y' && opt.bid > 0).slice(0, 3).map((opt, i) => (
+                          <div key={i} className="ml-2 text-xs">
+                            Strike ${opt.strike}: (${opt.strike} + ${opt.premium.toFixed(2)}) - ${currentPrice} = ${opt.absoluteGain.toFixed(2)} ({opt.gainPercent.toFixed(2)}%)
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-emerald-200">
+                      <thead className="bg-emerald-100">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-emerald-800 uppercase tracking-wider">
+                            Strike Price
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-emerald-800 uppercase tracking-wider">
+                            Premium (Bid)
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-emerald-800 uppercase tracking-wider">
+                            Total Revenue
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-emerald-800 uppercase tracking-wider">
+                            Gain Amount
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-emerald-800 uppercase tracking-wider">
+                            Gain %
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-emerald-800 uppercase tracking-wider">
+                            Annualized Return
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-emerald-800 uppercase tracking-wider">
+                            Greeks
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-emerald-100">
+                        {onePercentGainOpportunities.map((opportunity, index) => (
+                          <tr key={index} className="hover:bg-emerald-25">
+                            <td className="px-4 py-4 whitespace-nowrap">
+                              <div className="flex items-center">
+                                <div className="text-sm font-bold text-gray-900">
+                                  {formatCurrency(opportunity.strikePrice)}
+                                </div>
+                                <div className="ml-2 px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded">
+                                  ITM
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
+                              {formatCurrency(opportunity.premium)}
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold text-emerald-700">
+                              {formatCurrency(opportunity.totalRevenue)}
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold text-emerald-600">
+                              +{formatCurrency(opportunity.gainAmount)}
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold">
+                              <div className={`text-sm font-bold ${
+                                opportunity.gainPercent >= 5 ? 'text-emerald-700' :
+                                opportunity.gainPercent >= 3 ? 'text-emerald-600' :
+                                'text-emerald-500'
+                              }`}>
+                                +{opportunity.gainPercent.toFixed(2)}%
+                              </div>
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap">
+                              <div className={`text-sm font-semibold ${
+                                opportunity.annualizedReturn >= 50 ? 'text-emerald-700' :
+                                opportunity.annualizedReturn >= 25 ? 'text-emerald-600' :
+                                'text-emerald-500'
+                              }`}>
+                                {opportunity.annualizedReturn.toFixed(1)}%
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                annualized
+                              </div>
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap">
+                              <div className="text-xs space-y-1">
+                                <div>
+                                  <span className="text-gray-500">Δ:</span>
+                                  <span className="font-medium ml-1">{opportunity.option.OptionGreeks.delta.toFixed(3)}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">IV:</span>
+                                  <span className="font-medium ml-1">{formatPercentage(opportunity.option.OptionGreeks.iv * 100)}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">Vol:</span>
+                                  <span className="font-medium ml-1">{formatLargeNumber(opportunity.option.volume)}</span>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                <div className="mt-4 bg-white p-4 rounded-lg border border-emerald-200">
+                  <h4 className="font-semibold text-emerald-800 mb-2 flex items-center space-x-2">
+                    <Info size={16} />
+                    <span>Analysis Notes</span>
+                  </h4>
+                  <div className="text-sm text-emerald-700 space-y-1">
+                    <div>• <strong>Current Stock Price:</strong> {formatCurrency(currentPrice)}</div>
+                    <div>• <strong>Strategy:</strong> Covered call - sell call options on owned stock</div>
+                    <div>• <strong>Absolute Gain Calculation:</strong> (Strike Price + Premium) - Current Stock Price</div>
+                    <div>• <strong>Gain Percentage:</strong> (Absolute Gain ÷ Current Stock Price) × 100</div>
+                    <div>• <strong>Threshold:</strong> Looking for absolute gain ≥ 1%</div>
+                    <div>• <strong>Risk:</strong> Stock will be called away if price stays above strike at expiration</div>
+                    <div>• <strong>Premium Basis:</strong> Using bid price for conservative estimates</div>
+                    <div>• <strong>Annualized Return:</strong> Based on {selectedExpiration ? getDaysToExpiration(selectedExpiration) : 0} days to expiration</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Option Chain Summary and Greeks */}
           <div className="mt-6 space-y-4">
@@ -1385,6 +1747,11 @@ export function ETradePage() {
           </div>
         </div>
       )}
-    </div>
-  );
-}
+            </div>
+          ) : (
+            /* Transactions submenu */
+            <TransactionBrowser />
+          )}
+      </div>
+    );
+  }

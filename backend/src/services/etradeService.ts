@@ -134,10 +134,127 @@ interface StockQuote {
   };
 }
 
+interface AccountInfo {
+  accountId: string;
+  accountIdKey: string;
+  accountName: string;
+  accountType: string;
+  institutionType: string;
+  accountStatus: string;
+}
+
+interface AccountListResponse {
+  AccountListResponse?: {
+    Accounts: {
+      Account: AccountInfo[];
+    };
+  };
+  Accounts?: {
+    Account: AccountInfo[];
+  };
+}
+
+interface TransactionProduct {
+  symbol?: string;
+  securityType?: string;
+  securitySubType?: string;
+  callPut?: string;
+  expiryYear?: number;
+  expiryMonth?: number;
+  expiryDay?: number;
+  strikePrice?: number;
+  expiryType?: string;
+  productId?: {
+    symbol?: string;
+    typeCode?: string;
+  };
+}
+
+interface TransactionBrokerage {
+  transactionType: string;
+  product?: TransactionProduct;
+  quantity: number;
+  price: number;
+  settlementCurrency: string;
+  paymentCurrency: string;
+  fee: number;
+  memo?: string;
+  checkNo?: string;
+  orderNo?: string;
+  settlementDate?: number;
+}
+
+interface TransactionCategory {
+  categoryId: string;
+  parentId: string;
+  categoryName?: string;
+  parentName?: string;
+}
+
+interface Transaction {
+  transactionId: number;
+  accountId: string;
+  transactionDate: number;
+  postDate?: number;
+  amount: number;
+  description: string;
+  description2?: string;
+  transactionType?: string;
+  memo?: string;
+  imageFlag?: boolean;
+  instType?: string;
+  brokerage?: TransactionBrokerage;
+  category?: TransactionCategory;
+  detailsURI?: string;
+}
+
+interface TransactionListResponse {
+  TransactionListResponse?: {
+    Transaction?: Transaction[];
+    pageMarkers?: string;
+    moreTransactions?: boolean;
+    transactionCount?: number;
+    totalCount?: number;
+    next?: string;
+    marker?: string;
+  };
+  Transaction?: Transaction[];
+  pageMarkers?: string;
+  moreTransactions?: boolean;
+  transactionCount?: number;
+  totalCount?: number;
+  next?: string;
+  marker?: string;
+}
+
+interface TransactionDetailsResponse {
+  TransactionDetailsResponse?: {
+    transactionId: number;
+    accountId: string;
+    transactionDate: number;
+    postDate?: number;
+    amount: number;
+    description: string;
+    category?: TransactionCategory;
+    brokerage?: TransactionBrokerage;
+  };
+  transactionId?: number;
+  accountId?: string;
+  transactionDate?: number;
+  postDate?: number;
+  amount?: number;
+  description?: string;
+  category?: TransactionCategory;
+  brokerage?: TransactionBrokerage;
+}
+
 export class ETradeService {
   private config: ETradeConfig;
   private requestTokens: Map<string, RequestToken> = new Map();
   private accessTokens: Map<string, AccessToken> = new Map();
+  // Add a simple in-memory cache for quotes with a 30s TTL, keyed by environment and symbol
+  private quoteCache: Map<string, { data: StockQuote; fetchedAt: number }> = new Map();
+  private readonly QUOTE_CACHE_TTL_MS = 30_000;
 
   constructor() {
     this.config = {
@@ -459,8 +576,15 @@ export class ETradeService {
   async getStockQuote(sessionId: string, symbol: string): Promise<StockQuote> {
     try {
       const accessToken = await this.ensureValidToken(sessionId);
-      const url = `${this.getApiBaseUrl()}/v1/market/quote/${encodeURIComponent(symbol)}`;
 
+      // Check cache first (cache key includes environment to avoid cross-env contamination)
+      const cacheKey = `${this.config.useSandbox ? 'SANDBOX' : 'LIVE'}:${symbol.toUpperCase()}`;
+      const cached = this.quoteCache.get(cacheKey);
+      if (cached && (Date.now() - cached.fetchedAt) < this.QUOTE_CACHE_TTL_MS) {
+        return cached.data;
+      }
+
+      const url = `${this.getApiBaseUrl()}/v1/market/quote/${encodeURIComponent(symbol)}`;
       const authHeader = this.createAuthHeader('GET', url, accessToken);
 
       const response = await axios.get(url, {
@@ -468,6 +592,9 @@ export class ETradeService {
           Authorization: authHeader
         }
       });
+
+      // Cache the fresh response
+      this.quoteCache.set(cacheKey, { data: response.data, fetchedAt: Date.now() });
 
       return response.data;
     } catch (error) {
@@ -681,6 +808,296 @@ export class ETradeService {
   clearSession(sessionId: string): void {
     this.requestTokens.delete(sessionId);
     this.accessTokens.delete(sessionId);
+  }
+
+  async getAccountList(sessionId: string): Promise<AccountInfo[]> {
+    try {
+      const accessToken = await this.ensureValidToken(sessionId);
+      const url = `${this.getApiBaseUrl()}/v1/accounts/list`;
+      
+      const authHeader = this.createAuthHeader('GET', url, accessToken);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: authHeader
+        }
+      });
+
+      const responseData = response.data as AccountListResponse;
+      
+      // Handle both potential response formats
+      const accounts = responseData.AccountListResponse?.Accounts?.Account || responseData?.Accounts?.Account || [];
+      
+      return accounts;
+    } catch (error) {
+      console.error('Error getting account list:', error);
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          throw new Error('Authentication failed. Please re-authenticate.');
+        }
+        throw new Error(`Failed to get account list: ${error.response?.status} ${error.response?.data || error.message}`);
+      }
+      throw new Error('Failed to get account list from E*TRADE');
+    }
+  }
+
+  // Helper method for delay
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // Helper method for retry logic with exponential backoff
+  private async retryWithBackoff<T>(
+    operation: () => Promise<T>,
+    maxRetries: number = 3,
+    baseDelay: number = 1000
+  ): Promise<T> {
+    let lastError: Error;
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error as Error;
+        
+        // Check if it's a rate limit error
+        const isRateLimit = axios.isAxiosError(error) && 
+          (error.response?.status === 429 || 
+           error.response?.status === 400 && 
+           error.response?.data?.toString().includes('rate limit'));
+        
+        if (!isRateLimit || attempt === maxRetries) {
+          throw error;
+        }
+        
+        // Calculate delay with exponential backoff
+        const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 1000;
+        console.log(`Rate limit hit, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries + 1})`);
+        await this.delay(delay);
+      }
+    }
+    
+    throw lastError!;
+  }
+
+  async getAllTransactions(
+    sessionId: string,
+    accountIdKey: string,
+    options?: {
+      startDate?: string; // MMDDYYYY format
+      endDate?: string;   // MMDDYYYY format
+      sortOrder?: 'ASC' | 'DESC';
+      maxPages?: number; // Maximum pages to fetch (safety limit)
+      pageDelay?: number; // Delay between pages in milliseconds
+    }
+  ): Promise<TransactionListResponse> {
+    try {
+      const allTransactions: any[] = [];
+      let currentMarker: string | undefined = undefined;
+      let totalCount = 0;
+      let pageCount = 0;
+      const maxPages = options?.maxPages || 20; // Safety limit to prevent infinite loops
+      const pageDelay = options?.pageDelay || 1500; // Default 1.5 second delay between pages
+      
+      console.log(`Starting to fetch all transactions (max ${maxPages} pages, ${pageDelay}ms delay)...`);
+      
+      while (pageCount < maxPages) {
+        console.log(`Fetching page ${pageCount + 1}/${maxPages}...`);
+        
+        // Add delay between requests (except for the first one)
+        if (pageCount > 0) {
+          console.log(`Waiting ${pageDelay}ms before next request...`);
+          await this.delay(pageDelay);
+        }
+        
+        const pageResult = await this.retryWithBackoff(async () => {
+          return this.getTransactions(sessionId, accountIdKey, {
+            startDate: options?.startDate,
+            endDate: options?.endDate,
+            sortOrder: options?.sortOrder,
+            marker: currentMarker,
+            count: 50 // Use max page size for efficiency
+          });
+        });
+        
+        if (pageResult.Transaction && pageResult.Transaction.length > 0) {
+          allTransactions.push(...pageResult.Transaction);
+          console.log(`Page ${pageCount + 1}: Added ${pageResult.Transaction.length} transactions (total: ${allTransactions.length})`);
+        } else {
+          console.log(`Page ${pageCount + 1}: No transactions returned`);
+        }
+        
+        // Update total count from first page
+        if (pageCount === 0) {
+          totalCount = pageResult.totalCount || 0;
+          console.log(`Expected total transactions: ${totalCount}`);
+        }
+        
+        pageCount++;
+        
+        // Check if there are more pages
+        if (!pageResult.moreTransactions || !pageResult.marker) {
+          console.log(`No more pages available after page ${pageCount}`);
+          break;
+        }
+        
+        currentMarker = pageResult.marker;
+        console.log(`Next page marker: ${currentMarker}`);
+      }
+      
+      console.log(`Completed fetching ${pageCount} pages with ${allTransactions.length} total transactions`);
+      
+      return {
+        Transaction: allTransactions,
+        transactionCount: allTransactions.length,
+        totalCount: totalCount,
+        moreTransactions: false,
+        pageMarkers: '',
+        next: undefined,
+        marker: undefined
+      };
+    } catch (error) {
+      console.error('Error getting all transactions:', error);
+      throw error;
+    }
+  }
+
+  async getTransactions(
+    sessionId: string,
+    accountIdKey: string,
+    options?: {
+      startDate?: string; // MMDDYYYY format
+      endDate?: string;   // MMDDYYYY format
+      sortOrder?: 'ASC' | 'DESC';
+      marker?: string;
+      count?: number; // 1-50, defaults to 50
+    }
+  ): Promise<TransactionListResponse> {
+    try {
+      const accessToken = await this.ensureValidToken(sessionId);
+      
+      let url = `${this.getApiBaseUrl()}/v1/accounts/${encodeURIComponent(accountIdKey)}/transactions`;
+      const queryParams: string[] = [];
+      
+      if (options) {
+        if (options.startDate) queryParams.push(`startDate=${options.startDate}`);
+        if (options.endDate) queryParams.push(`endDate=${options.endDate}`);
+        if (options.sortOrder) queryParams.push(`sortOrder=${options.sortOrder}`);
+        if (options.marker) queryParams.push(`marker=${encodeURIComponent(options.marker)}`);
+        if (options.count) queryParams.push(`count=${options.count}`);
+      }
+      
+      if (queryParams.length > 0) {
+        url += `?${queryParams.join('&')}`;
+      }
+
+      const authHeader = this.createAuthHeader('GET', url, accessToken);
+
+      // Use retry logic for the API call
+      const response = await this.retryWithBackoff(async () => {
+        return axios.get(url, {
+          headers: {
+            Authorization: authHeader
+          }
+        });
+      });
+
+      console.log(`Transactions API response for account ${accountIdKey}:`, JSON.stringify(response.data, null, 2));
+
+      const responseData = response.data as TransactionListResponse;
+      
+      // Normalize response format - handle both JSON and XML response structures
+      const normalizedResponse: TransactionListResponse = {};
+      
+      if (responseData.TransactionListResponse) {
+        // XML format wrapper
+        normalizedResponse.Transaction = responseData.TransactionListResponse.Transaction || [];
+        normalizedResponse.pageMarkers = responseData.TransactionListResponse.pageMarkers;
+        normalizedResponse.moreTransactions = responseData.TransactionListResponse.moreTransactions;
+        normalizedResponse.transactionCount = responseData.TransactionListResponse.transactionCount;
+        normalizedResponse.totalCount = responseData.TransactionListResponse.totalCount;
+        normalizedResponse.next = responseData.TransactionListResponse.next;
+        normalizedResponse.marker = responseData.TransactionListResponse.marker;
+      } else {
+        // Direct JSON format
+        normalizedResponse.Transaction = responseData.Transaction || [];
+        normalizedResponse.pageMarkers = responseData.pageMarkers;
+        normalizedResponse.moreTransactions = responseData.moreTransactions;
+        normalizedResponse.transactionCount = responseData.transactionCount;
+        normalizedResponse.totalCount = responseData.totalCount;
+        normalizedResponse.next = responseData.next;
+        normalizedResponse.marker = responseData.marker;
+      }
+
+      return normalizedResponse;
+    } catch (error) {
+      console.error('Error getting transactions:', error);
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          throw new Error('Authentication failed. Please re-authenticate.');
+        }
+        if (error.response?.status === 204) {
+          // No results
+          return { Transaction: [] };
+        }
+        
+        const errorMessage = error.response?.data || error.message;
+        throw new Error(`Failed to get transactions: ${error.response?.status} ${errorMessage}`);
+      }
+      throw new Error('Failed to get transactions from E*TRADE');
+    }
+  }
+
+  async getTransactionDetails(
+    sessionId: string,
+    accountIdKey: string,
+    transactionId: string,
+    storeId?: string
+  ): Promise<TransactionDetailsResponse> {
+    try {
+      const accessToken = await this.ensureValidToken(sessionId);
+      
+      let url = `${this.getApiBaseUrl()}/v1/accounts/${encodeURIComponent(accountIdKey)}/transactions/${encodeURIComponent(transactionId)}`;
+      
+      if (storeId) {
+        url += `?storeId=${encodeURIComponent(storeId)}`;
+      }
+
+      const authHeader = this.createAuthHeader('GET', url, accessToken);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: authHeader
+        }
+      });
+
+      console.log(`Transaction details API response for transaction ${transactionId}:`, JSON.stringify(response.data, null, 2));
+
+      const responseData = response.data as TransactionDetailsResponse;
+      
+      // Normalize response format - handle both JSON and XML response structures
+      if (responseData.TransactionDetailsResponse) {
+        // XML format wrapper
+        return responseData.TransactionDetailsResponse;
+      } else {
+        // Direct JSON format
+        return responseData;
+      }
+    } catch (error) {
+      console.error('Error getting transaction details:', error);
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          throw new Error('Authentication failed. Please re-authenticate.');
+        }
+        if (error.response?.status === 204) {
+          throw new Error('No transaction details found for the specified transaction ID.');
+        }
+        
+        const errorMessage = error.response?.data || error.message;
+        throw new Error(`Failed to get transaction details: ${error.response?.status} ${errorMessage}`);
+      }
+      throw new Error('Failed to get transaction details from E*TRADE');
+    }
   }
 }
 

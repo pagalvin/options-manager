@@ -35,6 +35,12 @@ export const FinancialLinks: React.FC<FinancialLinksProps> = ({
       url: `https://us.etrade.com/etx/mkt/quotes?symbol=${security}#/snapshot/${security}`,
       label: 'ET',
       title: 'E*TRADE'
+    },
+    {
+      url: `/etrade?symbol=${security}`,
+      // globe icon
+      label: '🌐',
+      title: 'Real-time data from E*TRADE'
     }
   ];
 

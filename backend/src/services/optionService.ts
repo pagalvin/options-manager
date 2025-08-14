@@ -14,7 +14,7 @@ export class OptionService {
   async getOpenOptions(): Promise<Option[]> {
     const query = `
       SELECT * FROM options 
-      WHERE status = 'OPEN' AND quantity > 0
+      WHERE status = 'OPEN' AND quantity <> 0
       ORDER BY expiration_date ASC, underlying_symbol ASC
     `;
     const result = await pool.query(query);
