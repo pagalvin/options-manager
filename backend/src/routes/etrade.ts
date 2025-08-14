@@ -345,4 +345,161 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Get user accounts
+router.get('/accounts', async (req, res) => {
+  try {
+    const sessionId = req.headers['x-session-id'] as string;
+
+    if (!sessionId) {
+      return res.status(401).json({ error: 'Session ID required' });
+    }
+
+    if (!etradeService.isAuthenticated(sessionId)) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const accounts = await etradeService.getAccountList(sessionId);
+    res.json(accounts);
+  } catch (error) {
+    console.error('Error getting accounts:', error);
+    res.status(500).json({ 
+      error: 'Failed to get accounts',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Get account transactions
+router.get('/accounts/:accountIdKey/transactions', async (req, res) => {
+  try {
+    const { accountIdKey } = req.params;
+    const { symbol, startDate, endDate, count, sortOrder, marker } = req.query;
+    const sessionId = req.headers['x-session-id'] as string;
+
+    if (!sessionId) {
+      return res.status(401).json({ error: 'Session ID required' });
+    }
+
+    if (!etradeService.isAuthenticated(sessionId)) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    const transactions = await etradeService.getTransactions(sessionId, accountIdKey, {
+      startDate: startDate as string,
+      endDate: endDate as string,
+      sortOrder: sortOrder as 'ASC' | 'DESC',
+      marker: marker as string,
+      count: count ? parseInt(count as string) : undefined
+    });
+    
+    // Filter by symbol if provided (since API doesn't support it directly)
+    let filteredTransactions = transactions;
+    if (symbol && transactions.Transaction) {
+      const symbolFilter = (symbol as string).toUpperCase();
+      filteredTransactions = {
+        ...transactions,
+        Transaction: transactions.Transaction.filter(
+          (transaction: any) => {
+            // Check if transaction involves the specified symbol
+            const productSymbol = transaction.brokerage?.product?.symbol?.toUpperCase() || '';
+            const displaySymbol = transaction.brokerage?.displaySymbol?.toUpperCase() || '';
+            const description = transaction.description?.toUpperCase() || '';
+            
+            return productSymbol === symbolFilter || 
+                   displaySymbol.includes(symbolFilter) || 
+                   description.includes(symbolFilter);
+          }
+        )
+      };
+    }
+    
+    res.json(filteredTransactions);
+  } catch (error) {
+    console.error('Error getting account transactions:', error);
+    res.status(500).json({ 
+      error: 'Failed to get account transactions',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Get ALL account transactions (handles pagination automatically)
+router.get('/accounts/:accountIdKey/transactions/all', async (req, res) => {
+  try {
+    const { accountIdKey } = req.params;
+    const { symbol, startDate, endDate, sortOrder, maxPages, pageDelay } = req.query;
+    const sessionId = req.headers['x-session-id'] as string;
+
+    if (!sessionId) {
+      return res.status(401).json({ error: 'Session ID required' });
+    }
+
+    if (!etradeService.isAuthenticated(sessionId)) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    const transactions = await etradeService.getAllTransactions(sessionId, accountIdKey, {
+      startDate: startDate as string,
+      endDate: endDate as string,
+      sortOrder: sortOrder as 'ASC' | 'DESC',
+      maxPages: maxPages ? parseInt(maxPages as string) : undefined,
+      pageDelay: pageDelay ? parseInt(pageDelay as string) : undefined
+    });
+    
+    // Filter by symbol if provided (since API doesn't support it directly)
+    let filteredTransactions = transactions;
+    if (symbol && transactions.Transaction) {
+      const symbolFilter = (symbol as string).toUpperCase();
+      filteredTransactions = {
+        ...transactions,
+        Transaction: transactions.Transaction.filter(
+          (transaction: any) => {
+            // Check if transaction involves the specified symbol
+            const productSymbol = transaction.brokerage?.product?.symbol?.toUpperCase() || '';
+            const displaySymbol = transaction.brokerage?.displaySymbol?.toUpperCase() || '';
+            const description = transaction.description?.toUpperCase() || '';
+            
+            return productSymbol === symbolFilter || 
+                   displaySymbol.includes(symbolFilter) || 
+                   description.includes(symbolFilter);
+          }
+        )
+      };
+    }
+    
+    res.json(filteredTransactions);
+  } catch (error) {
+    console.error('Error getting all account transactions:', error);
+    res.status(500).json({ 
+      error: 'Failed to get all account transactions',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Get transaction details
+router.get('/accounts/:accountIdKey/transactions/:transactionId', async (req, res) => {
+  try {
+    const { accountIdKey, transactionId } = req.params;
+    const sessionId = req.headers['x-session-id'] as string;
+
+    if (!sessionId) {
+      return res.status(401).json({ error: 'Session ID required' });
+    }
+
+    if (!etradeService.isAuthenticated(sessionId)) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const details = await etradeService.getTransactionDetails(sessionId, accountIdKey, transactionId);
+    res.json(details);
+  } catch (error) {
+    console.error('Error getting transaction details:', error);
+    res.status(500).json({ 
+      error: 'Failed to get transaction details',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 export default router;

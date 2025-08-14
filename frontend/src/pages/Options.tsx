@@ -2,6 +2,7 @@ import { FinancialLinks } from "@/components/FinancialLinks";
 import { getLastThreeMonthsNames, getMonday, getNextSunday } from "@/helpers/dateHelper";
 import transactionsService, { Transaction } from "@/services/transactionsService";
 import { useState, useEffect } from "react";
+import { calculateOpenOptions } from "@/lib/utils";
 
 
 interface OptionAnalysis {
@@ -24,6 +25,7 @@ interface OptionAnalysis {
     manualStrikePrice?: number | null;
     manualOptionContracts?: number | null;
     recommendedWeeklyPremium?: number | null;
+    firstTransactionDate?: Date;
 }
 
 export function Options() {
@@ -208,6 +210,9 @@ export function Options() {
             let totalOptionContracts = 0;
             const strikeArray: number[] = [];
 
+            // Use shared utility to compute open lots exactly like TransactionAnalysis
+            const openLotsForSymbol = calculateOpenOptions(symbolTransactions as any);
+
             symbolTransactions.forEach((transaction) => {
                 const transDate = new Date(transaction.transaction_date);
                 const amount = parseFloat(String(transaction.amount));
@@ -251,18 +256,24 @@ export function Options() {
                     // }
                     // }
 
-                    // Track option contracts for total lots
-                    if (transaction.transaction_type === "Sold Short") {
+                    // Track option contracts for total lots (support "Sold"/"Bought" variants)
+                    const tt = (transaction.transaction_type || "").toLowerCase();
+                    const isSoldOpt = tt.startsWith("sold");
+                    const isBoughtOpt = tt.startsWith("bought");
+
+                    if (isSoldOpt) {
                         totalOptionContracts += Math.abs(quantity);
                     } else if (
-                        ["Bought To Cover", "Option Assigned", "Option Expired"].includes(transaction.transaction_type)
+                        isBoughtOpt ||
+                        transaction.transaction_type === "Option Assigned" ||
+                        transaction.transaction_type === "Option Expired"
                     ) {
                         totalOptionContracts -= Math.abs(quantity);
                     }
 
                     // Use the strike field directly for strike price calculation
                     const strike = parseFloat(String(transaction.strike));
-                    if (transaction.transaction_type === "Sold Short" && !isNaN(strike) && strike > 0) {
+                    if (isSoldOpt && !isNaN(strike) && strike > 0) {
                         strikeArray.push(strike);
                     }
                 } else if (transaction.security_type === "EQ") {
@@ -282,7 +293,7 @@ export function Options() {
             });
 
             // Calculate derived metrics
-            analysis.totalLots = Math.max(0, totalOptionContracts);
+            analysis.totalLots = openLotsForSymbol;
             if (analysis.symbol === "WOLF") {
                 console.log(`WOLF analysis:`, { analysis, totalOptionContracts, totalShares, totalCost, strikeArray });
             }
@@ -291,6 +302,12 @@ export function Options() {
             if (totalShares < 1) {
                 analysis.currentExposure = 0; // No exposure if no shares
             }
+
+            // If no current exposure, force lots and basis prices to 0
+            if (analysis.currentExposure === 0) {
+                analysis.totalLots = 0;
+            }
+
             // analysis.investmentBasisSharePrice = totalShares > 0 ? totalCost / totalShares : 0;
             analysis.investmentBasisSharePrice = analysis.currentExposure / analysis.totalLots / 100 || 0;
             // Get current share price from most recent equity transaction
@@ -303,6 +320,7 @@ export function Options() {
                 (analysis.currentExposure - analysis.netPremiumAllTime) / analysis.totalLots / 100 || 0;
             if (analysis.totalLots == 0) {
                 analysis.currentBasisSharePrice = 0; // No lots means no basis share price
+                analysis.investmentBasisSharePrice = 0;
             }
             // Calculate average strike price - use manual value if available, otherwise calculate
             analysis.averageStrikePrice =
@@ -390,6 +408,23 @@ export function Options() {
     const thClasses = "text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100";
     const thRight = "text-right " + thClasses;
 
+    const totalExposure = optionAnalysis
+        .filter((analysis) => !hideZeroLots || analysis.totalLots > 0)
+        .reduce((sum, analysis) => sum + analysis.currentExposure, 0);
+
+    const totalMaxGain = optionAnalysis
+        .filter((analysis) => !hideZeroLots || analysis.totalLots > 0)
+        .reduce((sum, analysis) => sum + analysis.currentMaxPotentialProfit, 0);
+
+    // Annualized ROI (percentage) starting from Feb 20, 2025 based on current totalExposure and totalMaxGain
+    const trackingStartDate = new Date(2025, 1, 20); // Months are 0-indexed: 1 => February
+    const today = new Date();
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const daysElapsed = Math.max(1, (today.getTime() - trackingStartDate.getTime()) / msPerDay);
+    const rawMaxRoi = totalExposure > 0 ? totalMaxGain / totalExposure : 0; // non-annualized ROI (decimal)
+    const annualizationFactor = 365 / daysElapsed;
+    const totalAnnualizedMaxRoi = rawMaxRoi > -1 ? (Math.pow(1 + rawMaxRoi, annualizationFactor) - 1) * 100 : 0; // percentage
+
     return (
         <div className="space-y-6">
             <h1 className="text-3xl font-bold">Options Positions</h1>
@@ -399,17 +434,22 @@ export function Options() {
                     <h2 className="text-xl font-semibold">
                         Options Analysis - All Symbols ({optionAnalysis.length} symbols)
                     </h2>
-                    <div className="flex items-center space-x-2">
-                        <input
-                            type="checkbox"
-                            id="hideZeroLots"
-                            checked={hideZeroLots}
-                            onChange={(e) => setHideZeroLots(e.target.checked)}
-                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <label htmlFor="hideZeroLots" className="text-sm text-gray-700">
-                            Hide positions with 0 lots
-                        </label>
+                    <div className="flex items-center space-x-4">
+                        <span className="text-sm text-gray-600 whitespace-nowrap">
+                            Annualized Max ROI: {isFinite(totalAnnualizedMaxRoi) ? formatNumber(totalAnnualizedMaxRoi) : "N/A"}%
+                        </span>
+                        <div className="flex items-center space-x-2">
+                            <input
+                                type="checkbox"
+                                id="hideZeroLots"
+                                checked={hideZeroLots}
+                                onChange={(e) => setHideZeroLots(e.target.checked)}
+                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            <label htmlFor="hideZeroLots" className="text-sm text-gray-700">
+                                Hide positions with 0 lots
+                            </label>
+                        </div>
                     </div>
                 </div>
 
@@ -923,6 +963,9 @@ export function Options() {
                                                 : "text-red-600"
                                         }`}
                                     >
+
+                                        ${formatNumber(100 * (totalMaxGain / totalExposure))}%
+                                        {/* xyzzy (${totalExposure.toFixed(2)}) max gain ${totalMaxGain.toFixed(2)}
                                         {formatNumber(
                                             optionAnalysis
                                                 .filter((analysis) => !hideZeroLots || analysis.totalLots > 0)
@@ -934,7 +977,7 @@ export function Options() {
                                                     1
                                                 )
                                         )}
-                                        %
+                                        % */}
                                     </td>
                                 </tr>
                             </tfoot>

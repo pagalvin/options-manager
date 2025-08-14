@@ -18,6 +18,9 @@ interface OptionsTransaction {
   transaction_type: string;
   description: string;
   quantity: number | string;
+  // optional fields to improve detection
+  security_type?: string;
+  symbol?: string;
 }
 
 /**
@@ -47,38 +50,56 @@ export function calculateOpenOptions(
 
   filteredTransactions.forEach(transaction => {
     const quantity = parseFloat(String(transaction.quantity || '0'));
-    
-    // Only count if this looks like an options transaction
     const type = (transaction.transaction_type || '').toUpperCase();
     const description = (transaction.description || '').toUpperCase();
-    const symbol = (transaction.calculated_symbol || '').toUpperCase();
-    
+    const secType = ((transaction as any).security_type || '').toUpperCase();
+    const rawSymbol = ((transaction as any).symbol || transaction.calculated_symbol || '').toUpperCase();
+
+    // Heuristic: does this look like an option transaction?
     const isOptionTransaction = (
+      secType === 'OPTN' ||
       type.includes('OPTION') ||
       type.includes('CALL') ||
       type.includes('PUT') ||
       description.includes('OPTION') ||
       description.includes('CALL') ||
       description.includes('PUT') ||
-      symbol.includes('C') && /\d{6}/.test(symbol) ||
-      symbol.includes('P') && /\d{6}/.test(symbol) ||
-      /[A-Z]+\d{6}[CP]\d+/.test(symbol) ||
-      // Common option transaction types
-      transaction.transaction_type === 'Sold Short' ||
-      transaction.transaction_type === 'Bought To Cover' ||
-      transaction.transaction_type === 'Option Assigned' ||
-      transaction.transaction_type === 'Option Expired'
+      /[CP]/.test(rawSymbol) && /\d{6}/.test(rawSymbol)
     );
 
-    if (isOptionTransaction) {
-      // Add contracts for opening positions (selling options)
-      if (transaction.transaction_type === 'Sold Short') {
+    if (!isOptionTransaction) return;
+
+    if (secType === 'OPTN') {
+      // Primary: use the sign of quantity when present
+      if (quantity < 0) {
         totalOptionContracts += Math.abs(quantity);
-      } 
-      // Subtract contracts for closing positions
-      else if (['Bought To Cover', 'Option Assigned', 'Option Expired'].includes(transaction.transaction_type)) {
-        totalOptionContracts -= Math.abs(quantity);
+        return;
       }
+      if (quantity > 0) {
+        totalOptionContracts -= Math.abs(quantity);
+        return;
+      }
+
+      // If quantity is 0 or missing, fall back to type/description heuristics
+      const isAssigned = type.includes('ASSIGN');
+      const isExpired = type.includes('EXPIRE');
+
+      if (isAssigned || isExpired) {
+        totalOptionContracts -= 1; // best-effort decrement
+      }
+      return;
+    }
+
+    // Fallback rules when security_type is not available
+    if (type.startsWith('SOLD')) {
+      totalOptionContracts += Math.abs(quantity);
+    } else if (
+      type.startsWith('BOUGHT') ||
+      type === 'BOUGHT TO COVER' ||
+      type === 'OPTION ASSIGNED' ||
+      type === 'OPTION EXPIRED'
+    ) {
+      totalOptionContracts -= Math.abs(quantity);
     }
   });
 

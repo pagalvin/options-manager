@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { AlertCircle, CheckCircle2, RefreshCw, TrendingUp, TrendingDown, Calendar, DollarSign, Target, Activity, Info, BarChart3 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, RefreshCw, TrendingUp, TrendingDown, Calendar, DollarSign, Target, Activity, Info, BarChart3, FileText } from 'lucide-react';
 import { FinancialLinks } from '@/components/FinancialLinks';
+import { TransactionBrowser } from '@/components/TransactionBrowser';
 
 interface StockQuote {
   QuoteResponse: {
@@ -149,6 +150,9 @@ export function ETradePage() {
   const [environmentLoading, setEnvironmentLoading] = useState(false);
   const [credentialsAvailable, setCredentialsAvailable] = useState(true);
   const [showFullChain, setShowFullChain] = useState(false);
+  
+  // Submenu state
+  const [activeSubmenu, setActiveSubmenu] = useState<'quotes' | 'transactions'>('quotes');
   
   // Read query params (e.g., ?symbol=DVN)
   const [searchParams] = useSearchParams();
@@ -672,74 +676,111 @@ export function ETradePage() {
     );
   }
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col space-y-4">
-        <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold">E*TRADE Integration</h1>
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2 text-green-600">
-              <CheckCircle2 size={20} />
-              <span className="text-sm">Connected to E*TRADE</span>
-            </div>
-            <button
-              onClick={logout}
-              className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-            >
-              Disconnect
-            </button>
-          </div>
-        </div>
-        
-        {/* Environment Toggle */}
-        <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg">
-          <div className="flex items-center space-x-3">
-            <span className="text-sm font-medium text-gray-700">API Environment:</span>
-            <div className="flex items-center space-x-2">
-              <span className={`text-sm font-medium ${environment === 'SANDBOX' ? 'text-blue-600' : 'text-gray-500'}`}>
-                SANDBOX
-              </span>
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col space-y-4">
+          <div className="flex justify-between items-center">
+            <h1 className="text-3xl font-bold">E*TRADE Integration</h1>
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2 text-green-600">
+                <CheckCircle2 size={20} />
+                <span className="text-sm">Connected to E*TRADE</span>
+              </div>
               <button
-                onClick={() => !environmentLoading && switchEnvironment(environment === 'SANDBOX' ? false : true)}
-                disabled={environmentLoading}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  environment === 'LIVE' 
-                    ? 'bg-red-600' 
-                    : 'bg-blue-600'
-                } ${environmentLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                onClick={logout}
+                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
               >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    environment === 'LIVE' ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
+                Disconnect
               </button>
-              <span className={`text-sm font-medium ${environment === 'LIVE' ? 'text-red-600' : 'text-gray-500'}`}>
-                LIVE
-              </span>
             </div>
           </div>
-          <div className="text-xs text-gray-500">
-            {environment === 'SANDBOX' 
-              ? 'Using test environment with fake data' 
-              : 'Using live trading environment with real market data'}
-            {!credentialsAvailable && (
-              <span className="text-red-600 font-medium"> - No credentials configured</span>
-            )}
+          
+          {/* Environment Toggle */}
+          <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg">
+            <div className="flex items-center space-x-3">
+              <span className="text-sm font-medium text-gray-700">API Environment:</span>
+              <div className="flex items-center space-x-2">
+                <span className={`text-sm font-medium ${environment === 'SANDBOX' ? 'text-blue-600' : 'text-gray-500'}`}>
+                  SANDBOX
+                </span>
+                <button
+                  onClick={() => !environmentLoading && switchEnvironment(environment === 'SANDBOX' ? false : true)}
+                  disabled={environmentLoading}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    environment === 'LIVE' 
+                      ? 'bg-red-600' 
+                      : 'bg-blue-600'
+                  } ${environmentLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      environment === 'LIVE' ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+                <span className={`text-sm font-medium ${environment === 'LIVE' ? 'text-red-600' : 'text-gray-500'}`}>
+                  LIVE
+                </span>
+              </div>
+            </div>
+            <div className="text-xs text-gray-500">
+              {environment === 'SANDBOX' 
+                ? 'Using test environment with fake data' 
+                : 'Using live trading environment with real market data'}
+              {!credentialsAvailable && (
+                <span className="text-red-600 font-medium"> - No credentials configured</span>
+              )}
+            </div>
+          </div>
+
+          {/* Submenu Tabs */}
+          <div className="bg-white rounded-lg shadow">
+            <div className="border-b border-gray-200">
+              <nav className="-mb-px flex space-x-8 px-6">
+                <button
+                  onClick={() => setActiveSubmenu('quotes')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeSubmenu === 'quotes'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    <BarChart3 size={16} />
+                    <span>Quotes & Options</span>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setActiveSubmenu('transactions')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeSubmenu === 'transactions'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    <FileText size={16} />
+                    <span>Transactions</span>
+                  </div>
+                </button>
+              </nav>
+            </div>
           </div>
         </div>
-      </div>
 
-      {error && (
-        <div className="bg-red-100 text-red-700 p-3 rounded flex items-center space-x-2">
-          <AlertCircle size={20} />
-          <span>{error}</span>
-        </div>
-      )}
+        {error && (
+          <div className="bg-red-100 text-red-700 p-3 rounded flex items-center space-x-2">
+            <AlertCircle size={20} />
+            <span>{error}</span>
+          </div>
+        )}
 
-      {/* Symbol Input */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h2 className="text-xl font-semibold mb-4">Stock Quote & Option Chain</h2>
+        {/* Content based on active submenu */}
+        {activeSubmenu === 'quotes' ? (
+          <div className="space-y-6">
+            {/* Symbol Input */}
+            <div className="bg-white p-6 rounded-lg shadow">
+              <h2 className="text-xl font-semibold mb-4">Stock Quote & Option Chain</h2>
         
         <form onSubmit={handleSymbolSubmit} className="flex space-x-4 mb-4">
           <input
@@ -1706,6 +1747,11 @@ export function ETradePage() {
           </div>
         </div>
       )}
-    </div>
-  );
-}
+            </div>
+          ) : (
+            /* Transactions submenu */
+            <TransactionBrowser />
+          )}
+      </div>
+    );
+  }

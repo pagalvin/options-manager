@@ -5,6 +5,7 @@ const navigation = [
   { name: 'Dashboard', href: '/' },
   { name: 'Transactions', href: '/transactions' },
   { name: 'Transaction Analysis', href: '/transaction-analysis' },
+  { name: 'Chains', href: '/chains' },
   { name: 'Positions', href: '/positions' },
   { name: 'Options', href: '/options' },
   { name: 'Performance', href: '/performance' },

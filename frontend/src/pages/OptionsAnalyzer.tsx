@@ -1,6 +1,7 @@
-import { DeleteIcon, EditIcon } from 'lucide-react';
+import { DeleteIcon, EditIcon, RefreshCw, Wand2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { FinancialLinks } from '../components/FinancialLinks';
+import { etradeAPI } from '@/lib/etradeAPI';
 
 interface ManualOptionsAnalysis {
   id?: number;
@@ -41,6 +42,7 @@ export function OptionsAnalyzer() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [hideZeroLots, setHideZeroLots] = useState<boolean>(true);
   const [fetchingPrice, setFetchingPrice] = useState<boolean>(false);
+  const [updatingStrategy, setUpdatingStrategy] = useState<boolean>(false);
   const [formData, setFormData] = useState<FormData>({
     security: '',
     market_price: '',
@@ -301,20 +303,131 @@ export function OptionsAnalyzer() {
 
   // Handle edit
   const handleEdit = (entry: ManualOptionsAnalysis) => {
+    const normalizeDateInput = (d?: string | null) => {
+      if (!d) return '';
+      // If already YYYY-MM-DD, keep first 10 chars; avoid timezone shifts
+      if (/^\d{4}-\d{2}-\d{2}/.test(d)) return d.substring(0, 10);
+      // If ISO string, split at T
+      if (d.includes('T')) return d.split('T')[0];
+      // Fallback: try Date parse then format to YYYY-MM-DD
+      const parsed = new Date(d);
+      if (!isNaN(parsed.getTime())) {
+        const yyyy = parsed.getFullYear();
+        const mm = String(parsed.getMonth() + 1).padStart(2, '0');
+        const dd = String(parsed.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+      }
+      return '';
+    };
     setEditingEntry(entry);
     setFormData({
       security: entry.security,
       market_price: entry.market_price?.toString() || '',
       lots: entry.lots?.toString() || '',
-      option_date: entry.option_date || '',
+      option_date: normalizeDateInput(entry.option_date),
       strike_price: entry.strike_price?.toString() || '',
       premium_per_contract: entry.premium_per_contract?.toString() || '',
       notes: entry.notes || '',
-      next_earnings_date: entry.next_earnings_date || '',
+      next_earnings_date: normalizeDateInput(entry.next_earnings_date),
       company_name: entry.company_name || '',
-      ex_dividend_date: entry.ex_dividend_date || ''
+      ex_dividend_date: normalizeDateInput(entry.ex_dividend_date)
     });
     setShowForm(true);
+  };
+
+  // Update strategy using E*TRADE: refresh price and pick minimal 1%+ ITM call
+  const updateStrategy = async () => {
+    const symbol = formData.security.trim().toUpperCase();
+    if (!symbol) {
+      setError('Please enter a security symbol first');
+      return;
+    }
+    try {
+      setUpdatingStrategy(true);
+      setError(null);
+      const sessionId = etradeAPI.getSessionId();
+      if (!sessionId) {
+        alert('Please connect to E*TRADE on the E*TRADE page first, then try again.');
+        return;
+      }
+
+      // 1) Update market price from E*TRADE quote
+      const quote = await etradeAPI.getStockQuote(symbol);
+      const q = quote?.QuoteResponse?.QuoteData?.[0];
+      const currentPrice: number | null = q?.All?.lastTrade ?? null;
+      if (!currentPrice || currentPrice <= 0) {
+        throw new Error('Could not determine current market price from E*TRADE.');
+      }
+      setFormData(prev => ({ ...prev, market_price: currentPrice.toFixed(2) }));
+
+      // 2) Get nearest expiration and fetch option chain
+      const exps = await etradeAPI.getOptionExpirationDates(symbol);
+      const expirations = exps?.expirationDates || exps?.ExpirationDates || [];
+      if (!expirations.length) {
+        alert('No option expirations found for this symbol.');
+        return;
+      }
+      const first = expirations[0];
+      const year = String(first.year);
+      const month = String(first.month);
+      const day = String(first.day);
+      const chainRaw = await etradeAPI.getOptionChain(symbol, year, month, day);
+      const chain = chainRaw?.OptionChainResponse ? {
+        ...chainRaw.OptionChainResponse,
+        OptionPair: chainRaw.OptionChainResponse.OptionPair || [],
+        SelectedED: chainRaw.OptionChainResponse.SelectedED,
+      } : chainRaw;
+      const pairs = chain?.optionPairs || chain?.OptionPair || [];
+      if (!pairs.length) {
+        alert('No option chain data returned for the nearest expiration.');
+        return;
+      }
+
+      // Build 1%+ ITM call opportunities (same logic as E*TRADE page)
+      const opportunities = pairs.map((pair: any) => {
+        const c = pair.Call;
+        if (!c) return null;
+        if (c.inTheMoney !== 'y') return null;
+        if (!c.bid || c.bid <= 0) return null;
+        const strikePrice = c.strikePrice as number;
+        const premium = c.bid as number;
+        const totalRevenue = strikePrice + premium;
+        const gainPercent = ((totalRevenue - currentPrice) / currentPrice) * 100;
+        if (gainPercent >= 1) {
+          return {
+            strikePrice,
+            premium,
+            totalRevenue,
+            gainPercent,
+          };
+        }
+        return null;
+      }).filter(Boolean) as Array<{ strikePrice: number; premium: number; totalRevenue: number; gainPercent: number }>;
+
+      if (opportunities.length === 0) {
+        const expDate = new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString();
+        alert(`No 1%+ gain ITM call opportunities found for ${symbol} (exp: ${expDate}).`);
+        return;
+      }
+
+      // Choose the smallest priced opportunity: minimal total revenue (strike + premium)
+      opportunities.sort((a, b) => a.totalRevenue - b.totalRevenue);
+      const chosen = opportunities[0];
+
+      // Update form fields: option_date (YYYY-MM-DD), strike, premium
+      const optionDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      setFormData(prev => ({
+        ...prev,
+        option_date: optionDate,
+        strike_price: chosen.strikePrice.toFixed(2),
+        premium_per_contract: chosen.premium.toFixed(2),
+      }));
+    } catch (err) {
+      console.error('Error updating strategy:', err);
+      setError(err instanceof Error ? err.message : 'Failed to update strategy');
+    } finally {
+      setUpdatingStrategy(false);
+    }
   };
 
   // Handle delete
@@ -430,6 +543,16 @@ export function OptionsAnalyzer() {
                   title="Fetch current market price"
                 >
                   {fetchingPrice ? '⏳' : '💲'}
+                </button>
+                <button
+                  type="button"
+                  onClick={updateStrategy}
+                  disabled={updatingStrategy || !formData.security.trim()}
+                  className="px-3 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-sm whitespace-nowrap flex items-center space-x-1"
+                  title="Use E*TRADE data to pick the minimal 1%+ ITM call"
+                >
+                  {updatingStrategy ? <RefreshCw className="animate-spin" size={16} /> : <Wand2 size={16} />}
+                  <span>Update strategy</span>
                 </button>
               </div>
             </div>
@@ -684,12 +807,12 @@ export function OptionsAnalyzer() {
                         {entry.lots && entry.lots ? formatNumber(entry.lots, 0) : '-'}
                       </td>
                       <td className={`${baseRowStyles} text-sm text-gray-900`}>
-                        {entry.lots && formatDate(entry.option_date || null) ? formatDate(entry.option_date || null) : '-'}
-                        {entry.lots && daysFromToday !== null ? (
+                        {formatDate(entry.option_date || null)}
+                        {daysFromToday !== null && (
                           <span className={daysFromToday < 0 ? 'text-red-600' : daysFromToday < 30 ? 'text-yellow-600' : 'text-gray-900'}>
                             <br/>{daysFromToday} days
                           </span>
-                        ) : '-'}
+                        )}
                       </td>
                       <td className={`${baseRowStyles} text-sm text-gray-900 text-right`}>
                         {entry.lots && entry.strike_price ? `$${formatNumber(entry.strike_price)}` : '-'}

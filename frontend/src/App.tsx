@@ -3,6 +3,7 @@ import { Navigation } from './components/Navigation';
 import { Dashboard } from './pages/Dashboard';
 import { Transactions } from './pages/Transactions';
 import { TransactionAnalysis } from './pages/TransactionAnalysis';
+import { Chains } from './pages/Chains';
 import { Positions } from './pages/Positions';
 import { Options } from './pages/Options';
 import { Performance } from './pages/Performance';
@@ -21,6 +22,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/transactions" element={<Transactions />} />
             <Route path="/transaction-analysis" element={<TransactionAnalysis />} />
+            <Route path="/chains" element={<Chains />} />
             <Route path="/positions" element={<Positions />} />
             <Route path="/symbol/:symbol" element={<SymbolDetail />} />
             <Route path="/options" element={<Options />} />

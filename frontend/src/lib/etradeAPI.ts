@@ -216,6 +216,100 @@ class ETradeAPI {
 
     return response.json();
   }
+
+  async getAccounts(): Promise<any> {
+    const response = await this.makeAuthenticatedRequest('/api/etrade/accounts');
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Failed to get accounts: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  async getTransactions(
+    accountIdKey: string, 
+    options?: {
+      symbol?: string;
+      startDate?: string;
+      endDate?: string;
+      count?: number;
+      sortOrder?: 'ASC' | 'DESC';
+      marker?: string;
+    }
+  ): Promise<any> {
+    let url = `/api/etrade/accounts/${encodeURIComponent(accountIdKey)}/transactions`;
+    const params = new URLSearchParams();
+    
+    if (options?.symbol) params.append('symbol', options.symbol);
+    if (options?.startDate) params.append('startDate', options.startDate);
+    if (options?.endDate) params.append('endDate', options.endDate);
+    if (options?.count) params.append('count', options.count.toString());
+    if (options?.sortOrder) params.append('sortOrder', options.sortOrder);
+    if (options?.marker) params.append('marker', options.marker);
+    
+    if (params.toString()) {
+      url += `?${params.toString()}`;
+    }
+
+    const response = await this.makeAuthenticatedRequest(url);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Failed to get transactions: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  async getAllTransactions(
+    accountIdKey: string, 
+    options?: {
+      symbol?: string;
+      startDate?: string;
+      endDate?: string;
+      sortOrder?: 'ASC' | 'DESC';
+      maxPages?: number;
+      pageDelay?: number;
+    }
+  ): Promise<any> {
+    let url = `/api/etrade/accounts/${encodeURIComponent(accountIdKey)}/transactions/all`;
+    const params = new URLSearchParams();
+    
+    if (options?.symbol) params.append('symbol', options.symbol);
+    if (options?.startDate) params.append('startDate', options.startDate);
+    if (options?.endDate) params.append('endDate', options.endDate);
+    if (options?.sortOrder) params.append('sortOrder', options.sortOrder);
+    if (options?.maxPages) params.append('maxPages', options.maxPages.toString());
+    if (options?.pageDelay) params.append('pageDelay', options.pageDelay.toString());
+    
+    if (params.toString()) {
+      url += `?${params.toString()}`;
+    }
+
+    const response = await this.makeAuthenticatedRequest(url);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Failed to get all transactions: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  async getTransactionDetails(accountIdKey: string, transactionId: string): Promise<any> {
+    const response = await this.makeAuthenticatedRequest(
+      `/api/etrade/accounts/${encodeURIComponent(accountIdKey)}/transactions/${encodeURIComponent(transactionId)}`
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Failed to get transaction details: ${response.status}`);
+    }
+
+    return response.json();
+  }
 }
 
 export const etradeAPI = new ETradeAPI();
