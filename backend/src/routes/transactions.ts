@@ -131,6 +131,17 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Get unique stock symbols from transactions
+router.get('/symbols', async (req, res) => {
+  try {
+    const symbols = await transactionService.getUniqueSymbols();
+    res.json(symbols);
+  } catch (error) {
+    console.error('Error fetching symbols:', error);
+    res.status(500).json({ error: 'Error fetching symbols' });
+  }
+});
+
 // Get transactions by symbol
 router.get('/symbol/:symbol', async (req, res) => {
   try {

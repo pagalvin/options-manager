@@ -113,6 +113,7 @@ class ETradeAPI {
       ...options.headers,
     };
 
+    console.log(`etradeAPI.ts: makeAuthenticatedRequest: url:`, url);
     const response = await fetch(url, { ...options, headers });
 
     if (response.status === 401) {
@@ -132,7 +133,8 @@ class ETradeAPI {
 
   async getStockQuote(symbol: string): Promise<any> {
     const response = await this.makeAuthenticatedRequest(`/api/etrade/quote/${encodeURIComponent(symbol.toUpperCase())}`);
-
+    // const url = `${this.getApiBaseUrl()}                /v1/market/quote/${encodeURIComponent(symbol)}?requireEarningsDate=true`;
+    
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.message || `Failed to get quote: ${response.status}`);

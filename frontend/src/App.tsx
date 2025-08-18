@@ -11,6 +11,8 @@ import { OptionsAnalyzer } from './pages/OptionsAnalyzer';
 import { ETradePage } from './pages/ETrade';
 import { Admin } from './pages/Admin';
 import { SymbolDetail } from './pages/SymbolDetail';
+import { ChartView } from './pages/ChartView';
+import { ChatPage } from './pages/ChatPage';
 
 function App() {
   return (
@@ -25,9 +27,12 @@ function App() {
             <Route path="/chains" element={<Chains />} />
             <Route path="/positions" element={<Positions />} />
             <Route path="/symbol/:symbol" element={<SymbolDetail />} />
+            <Route path="/chart/:symbol" element={<ChartView />} />
             <Route path="/options" element={<Options />} />
             <Route path="/performance" element={<Performance />} />
             <Route path="/analyzer" element={<OptionsAnalyzer />} />
+            <Route path="/chat" element={<ChatPage />} />
+            <Route path="/chat/covered-call-report/:symbol" element={<ChatPage />} />
             <Route path="/etrade" element={<ETradePage />} />
             <Route path="/admin" element={<Admin />} />
           </Routes>

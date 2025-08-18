@@ -160,4 +160,43 @@ export class StockPriceService {
       timestamp: Date.now(),
     };
   }
+
+  async getRecentPrices(symbol: string, days: number = 30): Promise<any[]> {
+    // This is a placeholder implementation
+    // In a real application, you would fetch historical price data from an API
+    // or store it in your database
+    try {
+      const currentPrice = await this.getStockPrice(symbol);
+      if (!currentPrice) {
+        return [];
+      }
+
+      // Generate mock historical data for now
+      const prices = [];
+      const basePrice = currentPrice.price;
+      
+      for (let i = days - 1; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        
+        // Add some random variation to simulate price movement
+        const variation = (Math.random() - 0.5) * 0.1; // +/- 5% variation
+        const price = basePrice * (1 + variation);
+        
+        prices.push({
+          symbol: symbol.toUpperCase(),
+          price: price,
+          date: date.toISOString().split('T')[0],
+          timestamp: date.getTime()
+        });
+      }
+      
+      return prices;
+    } catch (error) {
+      console.error(`Error fetching recent prices for ${symbol}:`, error);
+      return [];
+    }
+  }
 }
+
+export const stockPriceService = new StockPriceService();

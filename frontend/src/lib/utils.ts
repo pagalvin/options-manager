@@ -51,31 +51,33 @@ export function calculateOpenOptions(
   filteredTransactions.forEach(transaction => {
     const quantity = parseFloat(String(transaction.quantity || '0'));
     const type = (transaction.transaction_type || '').toUpperCase();
-    const description = (transaction.description || '').toUpperCase();
+    // const description = (transaction.description || '').toUpperCase();
     const secType = ((transaction as any).security_type || '').toUpperCase();
-    const rawSymbol = ((transaction as any).symbol || transaction.calculated_symbol || '').toUpperCase();
+    // const rawSymbol = ((transaction as any).symbol || transaction.calculated_symbol || '').toUpperCase();
 
     // Heuristic: does this look like an option transaction?
     const isOptionTransaction = (
-      secType === 'OPTN' ||
-      type.includes('OPTION') ||
-      type.includes('CALL') ||
-      type.includes('PUT') ||
-      description.includes('OPTION') ||
-      description.includes('CALL') ||
-      description.includes('PUT') ||
-      /[CP]/.test(rawSymbol) && /\d{6}/.test(rawSymbol)
+      secType === 'OPTN'
+      //  ||
+      // type.includes('OPTION') ||
+      // type.includes('CALL') ||
+      // type.includes('PUT') ||
+      // description.includes('OPTION') ||
+      // description.includes('CALL') ||
+      // description.includes('PUT') ||
+      // /[CP]/.test(rawSymbol) && /\d{6}/.test(rawSymbol)
     );
 
     if (!isOptionTransaction) return;
 
     if (secType === 'OPTN') {
-      // Primary: use the sign of quantity when present
-      if (quantity < 0) {
+      // Use transaction type to determine the correct operation, not quantity sign
+      // Fixed: SOUN contract calculation bug - use transaction type not quantity sign
+      if (type === 'SOLD SHORT' || type === 'SOLD') {
         totalOptionContracts += Math.abs(quantity);
         return;
       }
-      if (quantity > 0) {
+      if (type === 'BOUGHT TO COVER' || type === 'BOUGHT' || type === 'OPTION ASSIGNED' || type === 'OPTION EXPIRED') {
         totalOptionContracts -= Math.abs(quantity);
         return;
       }
@@ -104,7 +106,9 @@ export function calculateOpenOptions(
   });
 
   // Ensure we never return negative values (can't have negative open contracts)
-  return Math.max(0, totalOptionContracts);
+  const result = Math.max(0, totalOptionContracts);
+  
+  return result;
 }
 
 /**

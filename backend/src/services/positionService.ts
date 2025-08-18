@@ -117,4 +117,18 @@ export class PositionService {
     `;
     await pool.query(query, [currentPrice, symbol]);
   }
+
+  async getPositionsBySymbol(symbol: string): Promise<Position[]> {
+    const query = `
+      SELECT p.*, s.name as security_name 
+      FROM positions p
+      LEFT JOIN securities s ON p.symbol = s.symbol
+      WHERE p.symbol = $1
+      ORDER BY p.symbol
+    `;
+    const result = await pool.query(query, [symbol]);
+    return result.rows;
+  }
 }
+
+export const positionService = new PositionService();

@@ -41,7 +41,13 @@ export const FinancialLinks: React.FC<FinancialLinksProps> = ({
       // globe icon
       label: '🌐',
       title: 'Real-time data from E*TRADE'
+    },
+    {
+      url: `/chart/${security}`,
+      label: '📊',
+      title: 'View Chart'
     }
+
   ];
 
   return (

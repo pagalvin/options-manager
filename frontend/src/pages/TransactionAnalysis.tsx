@@ -287,7 +287,17 @@ export function TransactionAnalysis() {
   };
 
   const countOpenOptions = (): number => {
-    return calculateOpenOptions(filteredTransactions);
+    if (filters.symbol === 'all') {
+      // When showing all symbols, we need to count total across all symbols
+      const allSymbols = [...new Set(filteredTransactions.map(t => t.calculated_symbol))];
+      return allSymbols.reduce((total, symbol) => {
+        const symbolTransactions = filteredTransactions.filter(t => t.calculated_symbol === symbol);
+        return total + calculateOpenOptions(symbolTransactions, symbol);
+      }, 0);
+    } else {
+      // When filtering by specific symbol
+      return calculateOpenOptions(filteredTransactions, filters.symbol);
+    }
   };
 
   const handleEditTransaction = (transaction: Transaction) => {

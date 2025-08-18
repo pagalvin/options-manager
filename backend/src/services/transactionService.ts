@@ -430,6 +430,21 @@ export class TransactionService {
     return result.rows;
   }
 
+  async getUniqueSymbols(): Promise<string[]> {
+    const query = `
+      SELECT DISTINCT calculated_symbol 
+      FROM transactions 
+      WHERE calculated_symbol IS NOT NULL 
+        AND calculated_symbol != '' 
+        AND calculated_symbol NOT LIKE '%Transfer%'
+        AND calculated_symbol NOT LIKE '%Deposit%'
+        AND calculated_symbol NOT LIKE '%Withdrawal%'
+      ORDER BY calculated_symbol ASC
+    `;
+    const result = await pool.query(query);
+    return result.rows.map(row => row.calculated_symbol);
+  }
+
   async createTransaction(transactionData: Partial<Transaction>): Promise<Transaction> {
     const client = await pool.connect();
     
@@ -653,3 +668,5 @@ export class TransactionService {
     // depending on how options are handled in your system
   }
 }
+
+export const transactionService = new TransactionService();

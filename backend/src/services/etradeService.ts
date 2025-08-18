@@ -650,7 +650,7 @@ export class ETradeService {
         return cached.data;
       }
 
-      const url = `${this.getApiBaseUrl()}/v1/market/quote/${encodeURIComponent(symbol)}`;
+      const url = `${this.getApiBaseUrl()}/v1/market/quote/${encodeURIComponent(symbol)}?requireEarningsDate=true`;
       const authHeader = this.createAuthHeader('GET', url, accessToken);
 
       const response = await axios.get(url, {

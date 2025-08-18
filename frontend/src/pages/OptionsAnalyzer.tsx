@@ -1,6 +1,7 @@
-import { DeleteIcon, EditIcon, RefreshCw, Wand2 } from 'lucide-react';
+import { DeleteIcon, EditIcon, RefreshCw, Wand2, MessageSquare } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { FinancialLinks } from '../components/FinancialLinks';
+import { ChatInterface } from '../components/ChatInterface';
 import { etradeAPI } from '@/lib/etradeAPI';
 
 interface ManualOptionsAnalysis {
@@ -43,6 +44,9 @@ export function OptionsAnalyzer() {
   const [hideZeroLots, setHideZeroLots] = useState<boolean>(true);
   const [fetchingPrice, setFetchingPrice] = useState<boolean>(false);
   const [updatingStrategy, setUpdatingStrategy] = useState<boolean>(false);
+  const [updatingStrategyFor, setUpdatingStrategyFor] = useState<string | null>(null);
+  const [isChatOpen, setIsChatOpen] = useState<boolean>(false);
+  const [chatSymbol, setChatSymbol] = useState<string | undefined>(undefined);
   const [formData, setFormData] = useState<FormData>({
     security: '',
     market_price: '',
@@ -84,6 +88,30 @@ export function OptionsAnalyzer() {
     optionDate.setHours(0, 0, 0, 0);
     const diffTime = optionDate.getTime() - today.getTime();
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  };
+
+  // Calculate days since last update
+  const calculateDaysSinceUpdate = (dateStr: string | null): number | null => {
+    if (!dateStr) return null;
+    const updateDate = new Date(dateStr);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Reset time to start of day
+    updateDate.setHours(0, 0, 0, 0);
+    const diffTime = today.getTime() - updateDate.getTime();
+    return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  };
+
+  // Format last updated display
+  const formatLastUpdated = (dateStr: string | null): string => {
+    if (!dateStr) return '';
+    const updateDate = new Date(dateStr);
+    const daysSince = calculateDaysSinceUpdate(dateStr);
+    const formattedDate = updateDate.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric'
+    });
+    return `Last updated ${formattedDate} (${daysSince} days ago)`;
   };
 
   // Calculate cash needed for covered call
@@ -335,7 +363,133 @@ export function OptionsAnalyzer() {
     setShowForm(true);
   };
 
-  // Update strategy using E*TRADE: refresh price and pick minimal 1%+ ITM call
+  // Update strategy for existing entry (similar to updateStrategy but for table rows)
+  const updateStrategyForEntry = async (entry: ManualOptionsAnalysis) => {
+    const symbol = entry.security.trim().toUpperCase();
+    if (!symbol) {
+      setError('Invalid security symbol');
+      return;
+    }
+    
+    try {
+      setUpdatingStrategyFor(symbol);
+      setError(null);
+      const sessionId = etradeAPI.getSessionId();
+      if (!sessionId) {
+        alert('Please connect to E*TRADE on the E*TRADE page first, then try again.');
+        return;
+      }
+
+      // 1) Update market price from E*TRADE quote
+      const quote = await etradeAPI.getStockQuote(symbol);
+      const q = quote?.QuoteResponse?.QuoteData?.[0];
+      
+      console.log(`OptionsAnalyzer.tsx: updateStrategyForEntry: quote:`, quote);
+
+      const currentPrice: number | null = q?.All?.lastTrade ?? null;
+      if (!currentPrice || currentPrice <= 0) {
+        throw new Error('Could not determine current market price from E*TRADE.');
+      }
+
+      // Update earnings date if available
+      let nextEarningsDate = entry.next_earnings_date;
+      const nextEarningDateAsStringInMMDDYYFormat = q?.All?.nextEarningDate;
+      if (nextEarningDateAsStringInMMDDYYFormat && nextEarningDateAsStringInMMDDYYFormat.trim().length > 0) {
+        const nextEarningDateAsDate = new Date(nextEarningDateAsStringInMMDDYYFormat);
+        nextEarningsDate = nextEarningDateAsDate.getFullYear() + "-" + 
+          String(nextEarningDateAsDate.getMonth() + 1).padStart(2, '0') + "-" + 
+          String(nextEarningDateAsDate.getDate()).padStart(2, '0');
+      }
+
+      // 2) Get nearest expiration and fetch option chain
+      const exps = await etradeAPI.getOptionExpirationDates(symbol);
+      const expirations = exps?.expirationDates || exps?.ExpirationDates || [];
+      if (!expirations.length) {
+        alert('No option expirations found for this symbol.');
+        return;
+      }
+      const first = expirations[0];
+      const year = String(first.year);
+      const month = String(first.month);
+      const day = String(first.day);
+      const chainRaw = await etradeAPI.getOptionChain(symbol, year, month, day);
+      const chain = chainRaw?.OptionChainResponse ? {
+        ...chainRaw.OptionChainResponse,
+        OptionPair: chainRaw.OptionChainResponse.OptionPair || [],
+        SelectedED: chainRaw.OptionChainResponse.SelectedED,
+      } : chainRaw;
+      const pairs = chain?.optionPairs || chain?.OptionPair || [];
+      if (!pairs.length) {
+        alert('No option chain data returned for the nearest expiration.');
+        return;
+      }
+
+      // Build 1%+ ITM call opportunities (same logic as E*TRADE page)
+      const opportunities = pairs.map((pair: any) => {
+        const c = pair.Call;
+        if (!c) return null;
+        if (c.inTheMoney !== 'y') return null;
+        if (!c.bid || c.bid <= 0) return null;
+        const strikePrice = c.strikePrice as number;
+        const premium = c.bid as number;
+        const totalRevenue = strikePrice + premium;
+        const gainPercent = ((totalRevenue - currentPrice) / currentPrice) * 100;
+        if (gainPercent >= 1) {
+          return {
+            strikePrice,
+            premium,
+            totalRevenue,
+            gainPercent,
+          };
+        }
+        return null;
+      }).filter(Boolean) as Array<{ strikePrice: number; premium: number; totalRevenue: number; gainPercent: number }>;
+
+      if (opportunities.length === 0) {
+        const expDate = new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString();
+        alert(`No 1%+ gain ITM call opportunities found for ${symbol} (exp: ${expDate}).`);
+        return;
+      }
+
+      // Choose the smallest priced opportunity: minimal total revenue (strike + premium)
+      opportunities.sort((a, b) => a.totalRevenue - b.totalRevenue);
+      const chosen = opportunities[0];
+
+      // Update the entry directly
+      const optionDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const updatedEntry = {
+        ...entry,
+        market_price: currentPrice,
+        option_date: optionDate,
+        strike_price: chosen.strikePrice,
+        premium_per_contract: chosen.premium,
+        next_earnings_date: nextEarningsDate
+      };
+
+      // Save the updated entry
+      const response = await fetch(`/api/manual-options-analysis/${entry.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updatedEntry)
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      await fetchEntries();
+      setError(null);
+    } catch (err) {
+      console.error('Error updating strategy for entry:', err);
+      setError(err instanceof Error ? err.message : 'Failed to update strategy');
+    } finally {
+      setUpdatingStrategyFor(null);
+    }
+  };
+
+  // Update strategy using E*TRADE: refresh price and pick minimal 1%+ ITM call  
   const updateStrategy = async () => {
     const symbol = formData.security.trim().toUpperCase();
     if (!symbol) {
@@ -354,12 +508,32 @@ export function OptionsAnalyzer() {
       // 1) Update market price from E*TRADE quote
       const quote = await etradeAPI.getStockQuote(symbol);
       const q = quote?.QuoteResponse?.QuoteData?.[0];
+      
+      console.log(`OptionsAnalyzer.tsx: updateStrategy: quote:`, quote);
+
       const currentPrice: number | null = q?.All?.lastTrade ?? null;
       if (!currentPrice || currentPrice <= 0) {
         throw new Error('Could not determine current market price from E*TRADE.');
       }
       setFormData(prev => ({ ...prev, market_price: currentPrice.toFixed(2) }));
 
+      console.log(`OptionsAnalyzer.tsx: updateStrategy: next earnings date and q.all:`,{earningDate:  q?.All?.nextEarningDate, q_all: q?.All });
+      const nextEarningDateAsStringInMMDDYYFormat = q?.All?.nextEarningDate;
+      if (nextEarningDateAsStringInMMDDYYFormat.trim().length < 1) {
+        console.warn(`OptionsAnalyzer.tsx: updateStrategy: next earnings date is empty`);
+      }
+      else {
+        const nextEarningDateAsDate = new Date(nextEarningDateAsStringInMMDDYYFormat);
+        const nextEarningDateAsFormattedString = nextEarningDateAsDate.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+      });
+
+      console.log(`OptionsAnalyzer.tsx: updateStrategy: parsed next earnings date:`, {neAsDate: nextEarningDateAsDate, neAsString: nextEarningDateAsFormattedString});
+
+      setFormData(prev => ({ ...prev, next_earnings_date:  /* formatted as  "2025-08-13" */ nextEarningDateAsDate.getFullYear() + "-" + String(nextEarningDateAsDate.getMonth() + 1).padStart(2, '0') + "-" + String(nextEarningDateAsDate.getDate()).padStart(2, '0') }));
+    }
       // 2) Get nearest expiration and fetch option chain
       const exps = await etradeAPI.getOptionExpirationDates(symbol);
       const expirations = exps?.expirationDates || exps?.ExpirationDates || [];
@@ -430,6 +604,24 @@ export function OptionsAnalyzer() {
     }
   };
 
+  // Open chat for general discussion
+  const openGeneralChat = () => {
+    setChatSymbol(undefined);
+    setIsChatOpen(true);
+  };
+
+  // Open chat for specific symbol analysis
+  const openSymbolChat = (symbol: string) => {
+    setChatSymbol(symbol);
+    setIsChatOpen(true);
+  };
+
+  // Close chat
+  const closeChat = () => {
+    setIsChatOpen(false);
+    setChatSymbol(undefined);
+  };
+
   // Handle delete
   const handleDelete = async (id: number) => {
     if (!confirm('Are you sure you want to delete this entry?')) {
@@ -483,6 +675,14 @@ export function OptionsAnalyzer() {
             />
             <span className="text-sm text-gray-700">Hide zero lot entries</span>
           </label>
+          <button
+            onClick={openGeneralChat}
+            className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 flex items-center space-x-2"
+            title="Open Options Trading Chat"
+          >
+            <MessageSquare size={16} />
+            <span>AI Chat</span>
+          </button>
           <button
             onClick={() => setShowForm(!showForm)}
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
@@ -773,19 +973,39 @@ export function OptionsAnalyzer() {
                   return (
                     <tr key={entry.id} className="hover:bg-gray-50">
 
-                                            <td className={`${baseRowStyles} text-sm text-gray-500`}>
+                      <td className={`${baseRowStyles} text-sm text-gray-500`}>
                         <div className="flex space-x-2">
                           <button
                             onClick={() => handleEdit(entry)}
                             className="text-blue-600 hover:text-blue-900"
+                            title="Edit entry"
                           >
-                            <EditIcon/>
+                            <EditIcon size={16}/>
+                          </button>
+                          <button
+                            onClick={() => updateStrategyForEntry(entry)}
+                            disabled={updatingStrategyFor === entry.security}
+                            className="text-purple-600 hover:text-purple-900 disabled:text-gray-400"
+                            title="Update strategy from E*TRADE"
+                          >
+                            {updatingStrategyFor === entry.security ? 
+                              <RefreshCw className="animate-spin" size={16} /> : 
+                              <Wand2 size={16} />
+                            }
                           </button>
                           <button
                             onClick={() => handleDelete(entry.id!)}
                             className="text-red-600 hover:text-red-900"
+                            title="Delete entry"
                           >
-                            <DeleteIcon/>
+                            <DeleteIcon size={16}/>
+                          </button>
+                          <button
+                            onClick={() => openSymbolChat(entry.security)}
+                            className="text-green-600 hover:text-green-900"
+                            title="Open AI chat for this symbol"
+                          >
+                            <MessageSquare size={16}/>
                           </button>
                         </div>
                       </td>
@@ -853,9 +1073,20 @@ export function OptionsAnalyzer() {
                           </span>
                         ) : '-'}
                       </td>
-                      <td className={`${baseRowStyles} text-sm text-gray-900 max-w-xs truncate`}>
-                        {entry.notes}
-                        {!entry.lots && "Not planned"}
+                      <td className={`${baseRowStyles} text-sm text-gray-900 max-w-xs`}>
+                        <div className="flex flex-col">
+                          <div 
+                            className="truncate cursor-help"
+                            title={entry.notes ? entry.notes.replace(/\n/g, '\n') : ''}
+                          >
+                            {entry.notes || (!entry.lots ? "Not planned" : "-")}
+                          </div>
+                          {entry.updated_at && (
+                            <div className="text-xs text-gray-500 mt-1">
+                              {formatLastUpdated(entry.updated_at)}
+                            </div>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -888,6 +1119,13 @@ export function OptionsAnalyzer() {
           <p className="text-gray-500">No manual options analysis entries found.</p>
         )}
       </div>
+
+      {/* Chat Interface */}
+      <ChatInterface
+        symbol={chatSymbol}
+        isOpen={isChatOpen}
+        onClose={closeChat}
+      />
     </div>
   );
 }

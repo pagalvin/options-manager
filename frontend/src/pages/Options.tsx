@@ -3,6 +3,7 @@ import { getLastThreeMonthsNames, getMonday, getNextSunday } from "@/helpers/dat
 import transactionsService, { Transaction } from "@/services/transactionsService";
 import { useState, useEffect } from "react";
 import { calculateOpenOptions } from "@/lib/utils";
+import { AlertTriangle, AlertCircle } from 'lucide-react';
 
 
 interface OptionAnalysis {
@@ -26,6 +27,8 @@ interface OptionAnalysis {
     manualOptionContracts?: number | null;
     recommendedWeeklyPremium?: number | null;
     firstTransactionDate?: Date;
+    earningsDate?: string | null;
+    daysToEarnings?: number | null;
 }
 
 export function Options() {
@@ -38,6 +41,81 @@ export function Options() {
         key: keyof OptionAnalysis;
         direction: "asc" | "desc";
     } | null>(null);
+
+    // Helper function to calculate days to earnings
+    const calculateDaysToEarnings = (earningsDate: string | null): number | null => {
+        if (!earningsDate) return null;
+        const earningsDateObj = new Date(earningsDate);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        earningsDateObj.setHours(0, 0, 0, 0);
+        const diffTime = earningsDateObj.getTime() - today.getTime();
+        return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    };
+
+    // Fetch earnings data from manual options analysis
+    const fetchEarningsData = async (symbols: string[]): Promise<{[symbol: string]: {earningsDate: string | null; daysToEarnings: number | null}}> => {
+        const earningsData: {[symbol: string]: {earningsDate: string | null; daysToEarnings: number | null}} = {};
+        
+        try {
+            const response = await fetch('http://localhost:3001/api/manual-options-analysis');
+            if (response.ok) {
+                const manualAnalysisData = await response.json();
+                
+                // Create a map of symbol to earnings date
+                symbols.forEach(symbol => {
+                    const analysis = manualAnalysisData.find((entry: any) => entry.security === symbol);
+                    const earningsDate = analysis?.next_earnings_date || null;
+                    const daysToEarnings = calculateDaysToEarnings(earningsDate);
+                    
+                    earningsData[symbol] = {
+                        earningsDate,
+                        daysToEarnings
+                    };
+                });
+            }
+        } catch (error) {
+            console.error('Error fetching earnings data:', error);
+        }
+        
+        return earningsData;
+    };
+
+    // Format earnings date display
+    const formatEarningsDisplay = (earningsDate: string | null, daysToEarnings: number | null): JSX.Element => {
+        if (!earningsDate || daysToEarnings === null) {
+            return <span className="text-xs text-gray-500">ED: N/A</span>;
+        }
+
+        const formattedDate = new Date(earningsDate).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric'
+        });
+
+        const getIcon = () => {
+            if (daysToEarnings < 0) {
+                return null;
+            }   
+
+            if (daysToEarnings <= 7) {
+                return <AlertTriangle className="w-3 h-3 text-red-500 inline ml-1" />;
+            } else if (daysToEarnings >= 8 && daysToEarnings <= 14) {
+                return <AlertCircle className="w-3 h-3 text-yellow-500 inline ml-1" />;
+            }
+            return null;
+        };
+
+        return (
+            <span className={`text-xs ${
+                daysToEarnings <= 7 && daysToEarnings > 0 ? 'text-red-600' : 
+                daysToEarnings <= 14 && daysToEarnings >= 8 ? 'text-yellow-600' : 
+                'text-gray-600'
+            }`}>
+                ED: {formattedDate} ({daysToEarnings} days)
+                {getIcon()}
+            </span>
+        );
+    };
 
     // Helper function to format numbers with commas
     const formatNumber = (num: number, decimals: number = 2): string => {
@@ -166,8 +244,12 @@ export function Options() {
             }
         });
 
+        // Fetch earnings data for all symbols
+        const earningsData = await fetchEarningsData(Array.from(symbolsWithOptions));
+
         // Initialize analysis for each symbol
         symbolsWithOptions.forEach((symbol) => {
+            const earnings = earningsData[symbol];
             symbolMap.set(symbol, {
                 symbol,
                 netPremiumAllTime: 0,
@@ -188,6 +270,8 @@ export function Options() {
                 manualStrikePrice: null,
                 manualOptionContracts: null,
                 recommendedWeeklyPremium: null,
+                earningsDate: earnings.earningsDate,
+                daysToEarnings: earnings.daysToEarnings,
             });
         });
 
@@ -211,7 +295,7 @@ export function Options() {
             const strikeArray: number[] = [];
 
             // Use shared utility to compute open lots exactly like TransactionAnalysis
-            const openLotsForSymbol = calculateOpenOptions(symbolTransactions as any);
+            const openLotsForSymbol = calculateOpenOptions(symbolTransactions as any, symbol);
 
             symbolTransactions.forEach((transaction) => {
                 const transDate = new Date(transaction.transaction_date);
@@ -574,8 +658,12 @@ export function Options() {
                                         <tr key={analysis.symbol} className="hover:bg-gray-200">
                                             <td className="sticky left-0 z-10 bg-white hover:bg-gray-200 px-1 py-1 whitespace-nowrap text-sm font-medium text-blue-600 border-r border-gray-200">
                                                 <a href={`/symbol/${analysis.symbol}`} className="hover:text-blue-800">
-                                                    {analysis.symbol}
+                                                    <>{analysis.symbol}
                                                     <FinancialLinks security={analysis.symbol} className="ml-2" />
+                                                    </>
+                                                    <div className="mt-1">
+                                                        {formatEarningsDisplay(analysis.earningsDate || null, analysis.daysToEarnings || null)}
+                                                    </div>
                                                 </a>
                                             </td>
                                             <td

@@ -643,6 +643,220 @@ export function Performance() {
     return data;
   })();
 
+  // Calculate completed equity transactions gain/loss
+  const calculateCompletedEquityData = (period: 'weekly' | 'monthly') => {
+    // Group equity transactions by symbol and calculate net gain/loss for completed positions
+    const equityTransactions = transactions.filter(t => 
+      t.security_type === 'EQ' && 
+      (t.transaction_type === 'Bought' || t.transaction_type === 'Sold') &&
+      (selectedSymbol === 'ALL' || t.calculated_symbol === selectedSymbol)
+    );
+
+    // Group by symbol to track buy/sell pairs
+    const symbolTransactions = new Map<string, Array<{
+      date: Date;
+      type: 'Bought' | 'Sold';
+      quantity: number;
+      amount: number;
+      price: number;
+    }>>();
+
+    equityTransactions.forEach(t => {
+      const symbol = t.calculated_symbol;
+      if (!symbol) return;
+      
+      if (!symbolTransactions.has(symbol)) {
+        symbolTransactions.set(symbol, []);
+      }
+      
+      symbolTransactions.get(symbol)!.push({
+        date: new Date(t.transaction_date),
+        type: t.transaction_type as 'Bought' | 'Sold',
+        quantity: Math.abs(Number(t.quantity)),
+        amount: Number(t.amount),
+        price: Number(t.price)
+      });
+    });
+
+    // Calculate completed transactions (where shares were bought and then sold)
+    const completedTransactions: Array<{
+      symbol: string;
+      sellDate: Date;
+      gainLoss: number;
+      quantity: number;
+    }> = [];
+
+    symbolTransactions.forEach((txs, symbol) => {
+      const sortedTxs = txs.sort((a, b) => a.date.getTime() - b.date.getTime());
+      let holdings = 0;
+      let costBasis = 0;
+      
+      sortedTxs.forEach(tx => {
+        if (tx.type === 'Bought') {
+          holdings += tx.quantity;
+          costBasis += Math.abs(tx.amount); // Amount is negative for purchases
+        } else if (tx.type === 'Sold' && holdings > 0) {
+          const sharesSold = Math.min(tx.quantity, holdings);
+          const avgCostPerShare = costBasis / holdings;
+          const costOfSoldShares = sharesSold * avgCostPerShare;
+          const saleProceeds = tx.amount; // Amount is positive for sales
+          const gainLoss = saleProceeds - costOfSoldShares;
+          
+          completedTransactions.push({
+            symbol,
+            sellDate: tx.date,
+            gainLoss,
+            quantity: sharesSold
+          });
+          
+          holdings -= sharesSold;
+          costBasis -= costOfSoldShares;
+        }
+      });
+    });
+
+    // Group completed transactions by time period
+    const periodData = new Map<string, { period: string; netPremium: number; equityGainLoss: number; combined: number }>();
+
+    // Add net premium data
+    transactions
+      .filter(t => t.security_type === 'OPTN')
+      .filter(t => selectedSymbol === 'ALL' || t.calculated_symbol === selectedSymbol)
+      .forEach(t => {
+        const d = new Date(t.transaction_date);
+        if (d < thresholdWeekStart) return;
+        
+        let key: string;
+        if (period === 'weekly') {
+          const weekStart = startOfWeekSunday(d);
+          key = formatYyyyMmDd(weekStart);
+        } else {
+          key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        }
+        
+        if (!periodData.has(key)) {
+          periodData.set(key, { period: key, netPremium: 0, equityGainLoss: 0, combined: 0 });
+        }
+        
+        const data = periodData.get(key)!;
+        data.netPremium += Number(t.amount) || 0;
+      });
+
+    // Add completed equity data
+    completedTransactions.forEach(ct => {
+      if (ct.sellDate < thresholdWeekStart) return;
+      
+      let key: string;
+      if (period === 'weekly') {
+        const weekStart = startOfWeekSunday(ct.sellDate);
+        key = formatYyyyMmDd(weekStart);
+      } else {
+        key = `${ct.sellDate.getFullYear()}-${String(ct.sellDate.getMonth() + 1).padStart(2, '0')}`;
+      }
+      
+      if (!periodData.has(key)) {
+        periodData.set(key, { period: key, netPremium: 0, equityGainLoss: 0, combined: 0 });
+      }
+      
+      const data = periodData.get(key)!;
+      data.equityGainLoss += ct.gainLoss;
+    });
+
+    // Calculate combined values
+    periodData.forEach(data => {
+      data.combined = data.netPremium + data.equityGainLoss;
+    });
+
+    const sortedData = Array.from(periodData.values()).sort((a, b) => a.period.localeCompare(b.period));
+    
+    return sortedData;
+  };
+
+  const weeklyGainData = calculateCompletedEquityData('weekly');
+  const monthlyGainData = calculateCompletedEquityData('monthly');
+
+  // Calculate all-time totals for weekly combined performance
+  const weeklyAllTimeTotals = {
+    netPremium: weeklyGainData.reduce((sum, data) => sum + data.netPremium, 0),
+    equityGainLoss: weeklyGainData.reduce((sum, data) => sum + data.equityGainLoss, 0),
+    get combined() { return this.netPremium + this.equityGainLoss; }
+  };
+
+  // Calculate capital flow data
+  const calculateCapitalFlowData = (period: 'weekly' | 'monthly') => {
+    const flowData = new Map<string, { period: string; inflow: number; outflow: number; netFlow: number }>();
+
+    transactions
+      .filter(t => selectedSymbol === 'ALL' || t.calculated_symbol === selectedSymbol)
+      .forEach(t => {
+        const d = new Date(t.transaction_date);
+        if (d < thresholdWeekStart) return;
+        
+        let key: string;
+        if (period === 'weekly') {
+          const weekStart = startOfWeekSunday(d);
+          key = formatYyyyMmDd(weekStart);
+        } else {
+          key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        }
+        
+        if (!flowData.has(key)) {
+          flowData.set(key, { period: key, inflow: 0, outflow: 0, netFlow: 0 });
+        }
+        
+        const data = flowData.get(key)!;
+        const amount = Number(t.amount) || 0;
+        
+        // Inflows: Dividends (positive), Online Transfers (positive), Net gain/loss of premium
+        if (t.transaction_type === 'Dividend' && amount > 0) {
+          data.inflow += amount;
+        } else if (t.transaction_type === 'Online Transfer' && amount > 0) {
+          data.inflow += amount;
+        } else if (t.security_type === 'OPTN') {
+          // Net gain/loss of premium (positive adds to inflow, negative reduces inflow)
+          data.inflow += amount;
+        }
+        
+        // Outflows: Online Transfers (negative)
+        if (t.transaction_type === 'Online Transfer' && amount < 0) {
+          data.outflow += Math.abs(amount);
+        }
+      });
+
+    // Calculate net flow and sort by period
+    flowData.forEach(data => {
+      data.netFlow = data.inflow - data.outflow;
+    });
+
+    const sortedData = Array.from(flowData.values()).sort((a, b) => a.period.localeCompare(b.period));
+    
+    // Calculate cumulative values
+    let cumulativeInflow = 0;
+    let cumulativeOutflow = 0;
+    let cumulativeNetFlow = 0;
+    
+    const cumulativeData = sortedData.map(data => {
+      cumulativeInflow += data.inflow;
+      cumulativeOutflow += data.outflow;
+      cumulativeNetFlow += data.netFlow;
+      
+      return {
+        period: data.period,
+        inflow: data.inflow,
+        outflow: data.outflow,
+        netFlow: data.netFlow,
+        cumulativeInflow,
+        cumulativeOutflow,
+        cumulativeNetFlow
+      };
+    });
+
+    return cumulativeData;
+  };
+
+  const weeklyCapitalFlowData = calculateCapitalFlowData('weekly');
+  const monthlyCapitalFlowData = calculateCapitalFlowData('monthly');
+
   // Calculate summary metrics
   const totalPremiumCollected = monthlyData.reduce((sum, data) => sum + data.premiumCollected, 0);
   const totalRealizedGain = monthlyData.reduce((sum, data) => sum + data.realizedGain, 0);
@@ -652,6 +866,289 @@ export function Performance() {
   return (
     <div className="space-y-6">
       <h1 className="text-3xl font-bold">Performance Analysis</h1>
+
+      {/* New Combined Performance Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Weekly Combined Performance Chart - 2/3 width */}
+        <div className="lg:col-span-2 bg-white p-6 rounded-lg shadow">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+            <h3 className="text-lg font-semibold">Weekly Combined Performance</h3>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600" htmlFor="symbolFilterCombined">Symbol:</label>
+              <select
+                id="symbolFilterCombined"
+                className="border border-gray-300 rounded px-2 py-1 text-sm"
+                value={selectedSymbol}
+                onChange={(e) => setSelectedSymbol(e.target.value)}
+              >
+                <option value="ALL">All</option>
+                {optionSymbols.map(sym => (
+                  <option key={`combined-${sym}`} value={sym}>{sym}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={weeklyGainData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="period" tickFormatter={(v) => {
+                const d = new Date(v + 'T00:00:00');
+                return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              }} />
+              <YAxis />
+              <Tooltip content={({ active, label, payload }) => {
+                if (!active || !payload || payload.length === 0) return null;
+                const data = payload[0]?.payload;
+                
+                const start = new Date(String(label) + 'T00:00:00');
+                const end = new Date(start);
+                end.setDate(start.getDate() + 6);
+                const dateLabel = `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+                
+                return (
+                  <div className="bg-white border border-gray-200 rounded p-3 shadow text-sm">
+                    <div className="font-medium text-gray-800 mb-1">
+                      {dateLabel}
+                    </div>
+                    <div className="flex justify-between gap-6">
+                      <span className="text-blue-600">Net Premium:</span>
+                      <span className="font-semibold">${data?.netPremium?.toFixed(2) || '0.00'}</span>
+                    </div>
+                    <div className="flex justify-between gap-6">
+                      <span className="text-green-600">Equity Gain/Loss:</span>
+                      <span className="font-semibold">${data?.equityGainLoss?.toFixed(2) || '0.00'}</span>
+                    </div>
+                    <div className="flex justify-between gap-6">
+                      <span className="text-purple-600">Combined Total:</span>
+                      <span className="font-semibold">${data?.combined?.toFixed(2) || '0.00'}</span>
+                    </div>
+                  </div>
+                );
+              }} />
+              <Legend />
+              <Bar dataKey="netPremium" name="Net Premium" fill="#3b82f6" />
+              <Bar dataKey="equityGainLoss" name="Completed Equity Gain/Loss" fill="#10b981" />
+              <Bar dataKey="combined" name="Combined Total" fill="#8b5cf6" />
+            </BarChart>
+          </ResponsiveContainer>
+          <p className="mt-2 text-xs text-gray-500">Weekly combined performance showing net options premium and completed equity transactions.</p>
+          
+          {/* All Time Summary Statistics */}
+          <div className="mt-4 grid grid-cols-3 gap-4">
+            <div className="bg-blue-50 p-3 rounded">
+              <div className="text-xs text-blue-600 font-medium">All Time Net Premium</div>
+              <div className={`text-lg font-bold ${weeklyAllTimeTotals.netPremium >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                ${weeklyAllTimeTotals.netPremium.toFixed(2)}
+              </div>
+            </div>
+            <div className="bg-green-50 p-3 rounded">
+              <div className="text-xs text-green-600 font-medium">All Time Equity Gain/Loss</div>
+              <div className={`text-lg font-bold ${weeklyAllTimeTotals.equityGainLoss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                ${weeklyAllTimeTotals.equityGainLoss.toFixed(2)}
+              </div>
+            </div>
+            <div className="bg-purple-50 p-3 rounded">
+              <div className="text-xs text-purple-600 font-medium">All Time Combined Total</div>
+              <div className={`text-lg font-bold ${weeklyAllTimeTotals.combined >= 0 ? 'text-purple-600' : 'text-red-600'}`}>
+                ${weeklyAllTimeTotals.combined.toFixed(2)}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Monthly Combined Performance Chart - 1/3 width */}
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex flex-col gap-3 mb-4">
+            <h3 className="text-lg font-semibold">Monthly Combined Performance</h3>
+          </div>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={monthlyGainData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis 
+                dataKey="period" 
+                tickFormatter={(v) => {
+                  if (v === 'All Time') return 'All Time';
+                  const [year, month] = v.split('-');
+                  const date = new Date(parseInt(year), parseInt(month) - 1);
+                  return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+                }}
+                angle={-45} 
+                textAnchor="end" 
+                height={80} 
+                fontSize={12} 
+              />
+              <YAxis />
+              <Tooltip content={({ active, label, payload }) => {
+                if (!active || !payload || payload.length === 0) return null;
+                const data = payload[0]?.payload;
+                
+                let monthName: string;
+                if (String(label) === 'All Time') {
+                  monthName = 'All Time';
+                } else {
+                  const [year, month] = String(label).split('-');
+                  monthName = new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                }
+                
+                return (
+                  <div className="bg-white border border-gray-200 rounded p-3 shadow text-sm">
+                    <div className="font-medium text-gray-800 mb-1">
+                      {monthName}
+                    </div>
+                    <div className="flex justify-between gap-6">
+                      <span className="text-blue-600">Net Premium:</span>
+                      <span className="font-semibold">${data?.netPremium?.toFixed(2) || '0.00'}</span>
+                    </div>
+                    <div className="flex justify-between gap-6">
+                      <span className="text-green-600">Equity Gain/Loss:</span>
+                      <span className="font-semibold">${data?.equityGainLoss?.toFixed(2) || '0.00'}</span>
+                    </div>
+                    <div className="flex justify-between gap-6">
+                      <span className="text-purple-600">Combined Total:</span>
+                      <span className="font-semibold">${data?.combined?.toFixed(2) || '0.00'}</span>
+                    </div>
+                  </div>
+                );
+              }} />
+              <Legend />
+              <Bar dataKey="netPremium" name="Net Premium" fill="#3b82f6" />
+              <Bar dataKey="equityGainLoss" name="Completed Equity Gain/Loss" fill="#10b981" />
+              <Bar dataKey="combined" name="Combined Total" fill="#8b5cf6" />
+            </BarChart>
+          </ResponsiveContainer>
+          <p className="mt-2 text-xs text-gray-500">Monthly combined performance showing net options premium and completed equity transactions.</p>
+        </div>
+      </div>
+
+      {/* Capital Flow Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Weekly Capital Flow Chart - 2/3 width */}
+        <div className="lg:col-span-2 bg-white p-6 rounded-lg shadow">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+            <h3 className="text-lg font-semibold">Weekly Capital Flow</h3>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600" htmlFor="symbolFilterCapitalWeekly">Symbol:</label>
+              <select
+                id="symbolFilterCapitalWeekly"
+                className="border border-gray-300 rounded px-2 py-1 text-sm"
+                value={selectedSymbol}
+                onChange={(e) => setSelectedSymbol(e.target.value)}
+              >
+                <option value="ALL">All</option>
+                {optionSymbols.map(sym => (
+                  <option key={`capital-weekly-${sym}`} value={sym}>{sym}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={weeklyCapitalFlowData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="period" tickFormatter={(v) => {
+                const d = new Date(v + 'T00:00:00');
+                return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              }} />
+              <YAxis />
+              <Tooltip content={({ active, label, payload }) => {
+                if (!active || !payload || payload.length === 0) return null;
+                const data = payload[0]?.payload;
+                
+                const start = new Date(String(label) + 'T00:00:00');
+                const end = new Date(start);
+                end.setDate(start.getDate() + 6);
+                const dateLabel = `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+                
+                return (
+                  <div className="bg-white border border-gray-200 rounded p-3 shadow text-sm">
+                    <div className="font-medium text-gray-800 mb-1">
+                      {dateLabel}
+                    </div>
+                    <div className="flex justify-between gap-6">
+                      <span className="text-green-600">Cumulative Inflow:</span>
+                      <span className="font-semibold">${data?.cumulativeInflow?.toFixed(2) || '0.00'}</span>
+                    </div>
+                    <div className="flex justify-between gap-6">
+                      <span className="text-red-600">Cumulative Outflow:</span>
+                      <span className="font-semibold">${data?.cumulativeOutflow?.toFixed(2) || '0.00'}</span>
+                    </div>
+                    <div className="flex justify-between gap-6">
+                      <span className="text-blue-600">Cumulative Net Flow:</span>
+                      <span className="font-semibold">${data?.cumulativeNetFlow?.toFixed(2) || '0.00'}</span>
+                    </div>
+                  </div>
+                );
+              }} />
+              <Legend />
+              <Bar dataKey="cumulativeInflow" name="Cumulative Inflow" fill="#10b981" />
+              <Bar dataKey="cumulativeOutflow" name="Cumulative Outflow" fill="#ef4444" />
+              <Bar dataKey="cumulativeNetFlow" name="Cumulative Net Flow" fill="#3b82f6" />
+            </BarChart>
+          </ResponsiveContainer>
+          <p className="mt-2 text-xs text-gray-500">
+            Cumulative capital flow showing running totals. Inflows: Dividends, deposits, net premium gain/loss. 
+            Outflows: Withdrawals.
+          </p>
+        </div>
+
+        {/* Monthly Capital Flow Chart - 1/3 width */}
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex flex-col gap-3 mb-4">
+            <h3 className="text-lg font-semibold">Monthly Capital Flow</h3>
+          </div>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={monthlyCapitalFlowData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis 
+                dataKey="period" 
+                tickFormatter={(v) => {
+                  const [year, month] = v.split('-');
+                  const date = new Date(parseInt(year), parseInt(month) - 1);
+                  return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+                }}
+                angle={-45} 
+                textAnchor="end" 
+                height={80} 
+                fontSize={12} 
+              />
+              <YAxis />
+              <Tooltip content={({ active, label, payload }) => {
+                if (!active || !payload || payload.length === 0) return null;
+                const data = payload[0]?.payload;
+                
+                const [year, month] = String(label).split('-');
+                const monthName = new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                
+                return (
+                  <div className="bg-white border border-gray-200 rounded p-3 shadow text-sm">
+                    <div className="font-medium text-gray-800 mb-1">
+                      {monthName}
+                    </div>
+                    <div className="flex justify-between gap-6">
+                      <span className="text-green-600">Cumulative Inflow:</span>
+                      <span className="font-semibold">${data?.cumulativeInflow?.toFixed(2) || '0.00'}</span>
+                    </div>
+                    <div className="flex justify-between gap-6">
+                      <span className="text-red-600">Cumulative Outflow:</span>
+                      <span className="font-semibold">${data?.cumulativeOutflow?.toFixed(2) || '0.00'}</span>
+                    </div>
+                    <div className="flex justify-between gap-6">
+                      <span className="text-blue-600">Cumulative Net Flow:</span>
+                      <span className="font-semibold">${data?.cumulativeNetFlow?.toFixed(2) || '0.00'}</span>
+                    </div>
+                  </div>
+                );
+              }} />
+              <Legend />
+              <Bar dataKey="cumulativeInflow" name="Cumulative Inflow" fill="#10b981" />
+              <Bar dataKey="cumulativeOutflow" name="Cumulative Outflow" fill="#ef4444" />
+              <Bar dataKey="cumulativeNetFlow" name="Cumulative Net Flow" fill="#3b82f6" />
+            </BarChart>
+          </ResponsiveContainer>
+          <p className="mt-2 text-xs text-gray-500">
+            Cumulative monthly capital flow. Inflows: Dividends, deposits, net premium gain/loss. Outflows: Withdrawals.
+          </p>
+        </div>
+      </div>
 
       {/* Net Premium as % of At-Risk Equity by Week and Month */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
