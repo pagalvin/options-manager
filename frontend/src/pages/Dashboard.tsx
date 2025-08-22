@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { OptionsExposureHeatMap } from '../components/OptionsExposureHeatMap';
 
 interface Transaction {
   id: string;
@@ -225,6 +226,9 @@ export function Dashboard() {
           <p className="text-sm text-gray-500">Premium collected minus paid</p>
         </div>
       </div>
+
+      {/* Options Exposure Heat Map */}
+      <OptionsExposureHeatMap positions={positions} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white p-6 rounded-lg shadow">

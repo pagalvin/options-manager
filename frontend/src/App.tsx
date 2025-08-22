@@ -24,6 +24,8 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/transactions" element={<Transactions />} />
             <Route path="/transaction-analysis" element={<TransactionAnalysis />} />
+            <Route path="/transaction-analysis/:fromDate/:toDate" element={<TransactionAnalysis />} />
+            <Route path="/transaction-analysis/:fromDate/:toDate/:symbol" element={<TransactionAnalysis />} />
             <Route path="/chains" element={<Chains />} />
             <Route path="/positions" element={<Positions />} />
             <Route path="/symbol/:symbol" element={<SymbolDetail />} />

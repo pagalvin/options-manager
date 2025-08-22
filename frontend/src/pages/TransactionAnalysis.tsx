@@ -1,6 +1,7 @@
 import { FinancialLinks } from '@/components/FinancialLinks';
 import { calculateOpenOptions } from '@/lib/utils';
 import { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
 
 interface Transaction {
   id: number;
@@ -36,6 +37,12 @@ interface EditTransaction {
 }
 
 export function TransactionAnalysis() {
+  const { fromDate: urlFromDate, toDate: urlToDate, symbol: urlSymbol } = useParams<{
+    fromDate?: string;
+    toDate?: string;
+    symbol?: string;
+  }>();
+  
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,9 +50,9 @@ export function TransactionAnalysis() {
   const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
   
   const [filters, setFilters] = useState<AnalysisFilters>({
-    symbol: 'all',
-    fromDate: '',
-    toDate: '',
+    symbol: urlSymbol || 'all',
+    fromDate: urlFromDate || '',
+    toDate: urlToDate || '',
     optionsOnly: false,
   });
 
@@ -410,6 +417,22 @@ export function TransactionAnalysis() {
     fetchTransactions();
   }, []);
 
+  // Update filters when URL parameters change
+  useEffect(() => {
+    if (urlFromDate || urlToDate || urlSymbol) {
+      const newFilters = {
+        symbol: urlSymbol || 'all',
+        fromDate: urlFromDate || '',
+        toDate: urlToDate || '',
+        optionsOnly: false,
+      };
+      setFilters(newFilters);
+      if (transactions.length > 0) {
+        applyFilters(transactions, newFilters);
+      }
+    }
+  }, [urlFromDate, urlToDate, urlSymbol, transactions]);
+
   // Re-apply filters when sort order changes
   useEffect(() => {
     if (transactions.length > 0) {
@@ -469,6 +492,13 @@ export function TransactionAnalysis() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Transaction Analysis</h1>
+          {(urlFromDate || urlToDate || urlSymbol) && (
+            <div className="mt-2 text-sm text-blue-600 bg-blue-50 px-3 py-1 rounded-full inline-block">
+              📊 Filtered from Performance page
+              {urlSymbol && ` for ${urlSymbol}`}
+              {urlFromDate && urlToDate && ` (${new Date(urlFromDate).toLocaleDateString()} - ${new Date(urlToDate).toLocaleDateString()})`}
+            </div>
+          )}
           <p className="text-sm text-gray-600 mt-2">
             Cash Flow: <span className="text-green-600 font-medium">Green = Inflow</span> (selling, negative qty) | 
             <span className="text-red-600 font-medium"> Red = Outflow</span> (buying, positive qty)

@@ -42,6 +42,7 @@ export function OptionsAnalyzer() {
   const [sortColumn, setSortColumn] = useState<string>('security');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [hideZeroLots, setHideZeroLots] = useState<boolean>(true);
+  const [symbolFilter, setSymbolFilter] = useState<string>('');
   const [fetchingPrice, setFetchingPrice] = useState<boolean>(false);
   const [updatingStrategy, setUpdatingStrategy] = useState<boolean>(false);
   const [updatingStrategyFor, setUpdatingStrategyFor] = useState<string | null>(null);
@@ -150,7 +151,12 @@ export function OptionsAnalyzer() {
   // Sort entries based on current sort settings
   const sortedEntries = [...entries]
     .filter(entry => {
+      // Filter by hideZeroLots
       if (hideZeroLots && (!entry.lots || entry.lots === 0)) {
+        return false;
+      }
+      // Filter by symbol
+      if (symbolFilter.trim() && !entry.security.toLowerCase().includes(symbolFilter.toLowerCase().trim())) {
         return false;
       }
       return true;
@@ -666,6 +672,26 @@ export function OptionsAnalyzer() {
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Options Analyzer</h1>
         <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
+            <label className="text-sm text-gray-700">Filter by Symbol:</label>
+            <input
+              type="text"
+              value={symbolFilter}
+              onChange={(e) => setSymbolFilter(e.target.value)}
+              onKeyDown={(e) => e.key === 'Escape' && setSymbolFilter('')}
+              placeholder="e.g., AAPL, MSFT..."
+              className="px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 w-48"
+            />
+            {symbolFilter && (
+              <button
+                onClick={() => setSymbolFilter('')}
+                className="px-2 py-1 text-gray-500 hover:text-gray-700"
+                title="Clear filter"
+              >
+                ✕
+              </button>
+            )}
+          </div>
           <label className="flex items-center space-x-2">
             <input
               type="checkbox"
@@ -892,12 +918,16 @@ export function OptionsAnalyzer() {
       {/* Entries Table */}
       <div className="bg-white p-6 rounded-lg shadow">
         <h2 className="text-xl font-semibold mb-4">
-          Manual Options Analysis ({sortedEntries.length} entries{hideZeroLots ? ` of ${entries.length} total` : ''})
+          Manual Options Analysis ({sortedEntries.length} entries
+          {hideZeroLots || symbolFilter ? ` of ${entries.length} total` : ''}
+          {symbolFilter ? ` - filtered by "${symbolFilter}"` : ''}
+          )
         </h2>
         
         {entries.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
+          sortedEntries.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
                   <th className={`${baseHeaderRowStyles} text-left text-xs font-medium text-gray-500 uppercase tracking-wider`}>
@@ -1114,7 +1144,28 @@ export function OptionsAnalyzer() {
                 </tr>
               </tfoot>
             </table>
-          </div>
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <p className="text-gray-500">
+                No entries match your current filters.
+                {symbolFilter && (
+                  <>
+                    <br />
+                    <span className="text-sm">
+                      Try adjusting the symbol filter "{symbolFilter}" or{' '}
+                      <button
+                        onClick={() => setSymbolFilter('')}
+                        className="text-blue-600 hover:text-blue-800 underline"
+                      >
+                        clear all filters
+                      </button>
+                    </span>
+                  </>
+                )}
+              </p>
+            </div>
+          )
         ) : (
           <p className="text-gray-500">No manual options analysis entries found.</p>
         )}

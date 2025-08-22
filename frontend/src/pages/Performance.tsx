@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   LineChart,
   Line,
@@ -57,10 +58,58 @@ interface TransactionTypeData {
 }
 
 export function Performance() {
+  const navigate = useNavigate();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedSymbol, setSelectedSymbol] = useState<string>('ALL');
+
+  // Helper function to navigate to transaction analysis with date range and symbol
+  const navigateToTransactionAnalysis = (period: string, symbol?: string) => {
+    let fromDate = '';
+    let toDate = '';
+    
+    if (period.includes('-') && period.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      // Handle weekly data (YYYY-MM-DD format)
+      const weekStart = new Date(period + 'T00:00:00');
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+      fromDate = period;
+      toDate = weekEnd.toISOString().split('T')[0];
+    } else if (period.match(/^\d{4}-\d{2}$/)) {
+      // Handle YYYY-MM format (monthly data)
+      const [year, month] = period.split('-');
+      const monthStart = new Date(parseInt(year), parseInt(month) - 1, 1);
+      const monthEnd = new Date(parseInt(year), parseInt(month), 0); // Last day of month
+      fromDate = monthStart.toISOString().split('T')[0];
+      toDate = monthEnd.toISOString().split('T')[0];
+    } else {
+      // Handle month name format like "Feb 2025"
+      try {
+        const monthDate = new Date(period + ' 1'); // Add day to parse
+        if (!isNaN(monthDate.getTime())) {
+          const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+          const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
+          fromDate = monthStart.toISOString().split('T')[0];
+          toDate = monthEnd.toISOString().split('T')[0];
+        } else {
+          console.error('Could not parse period:', period);
+          return;
+        }
+      } catch (error) {
+        console.error('Error parsing period:', period, error);
+        return;
+      }
+    }
+
+    // Build the URL with parameters
+    let url = `/transaction-analysis/${fromDate}/${toDate}`;
+    if (symbol && symbol !== 'ALL') {
+      url += `/${symbol}`;
+    }
+    
+    navigate(url);
+  };
 
   // Fetch all transactions
   const fetchTransactions = async () => {
@@ -873,6 +922,7 @@ export function Performance() {
         <div className="lg:col-span-2 bg-white p-6 rounded-lg shadow">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
             <h3 className="text-lg font-semibold">Weekly Combined Performance</h3>
+            <p className="text-xs text-gray-500 mt-1">Click on any bar to view detailed transactions for that week</p>
             <div className="flex items-center gap-2">
               <label className="text-sm text-gray-600" htmlFor="symbolFilterCombined">Symbol:</label>
               <select
@@ -888,8 +938,16 @@ export function Performance() {
               </select>
             </div>
           </div>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={weeklyGainData}>
+          <div className="cursor-pointer hover:bg-gray-50 rounded transition-colors">
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart 
+                data={weeklyGainData}
+                onClick={(data) => {
+                  if (data && data.activeLabel) {
+                    navigateToTransactionAnalysis(data.activeLabel, selectedSymbol);
+                  }
+                }}
+              >
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="period" tickFormatter={(v) => {
                 const d = new Date(v + 'T00:00:00');
@@ -922,6 +980,9 @@ export function Performance() {
                       <span className="text-purple-600">Combined Total:</span>
                       <span className="font-semibold">${data?.combined?.toFixed(2) || '0.00'}</span>
                     </div>
+                    <div className="text-xs text-gray-500 mt-2 italic">
+                      Click to view detailed transactions
+                    </div>
                   </div>
                 );
               }} />
@@ -931,6 +992,7 @@ export function Performance() {
               <Bar dataKey="combined" name="Combined Total" fill="#8b5cf6" />
             </BarChart>
           </ResponsiveContainer>
+          </div>
           <p className="mt-2 text-xs text-gray-500">Weekly combined performance showing net options premium and completed equity transactions.</p>
           
           {/* All Time Summary Statistics */}
@@ -960,9 +1022,17 @@ export function Performance() {
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex flex-col gap-3 mb-4">
             <h3 className="text-lg font-semibold">Monthly Combined Performance</h3>
+            <p className="text-xs text-gray-500 mt-1">Click on any bar to view detailed transactions for that month</p>
           </div>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={monthlyGainData}>
+            <BarChart 
+              data={monthlyGainData}
+              onClick={(data) => {
+                if (data && data.activeLabel) {
+                  navigateToTransactionAnalysis(data.activeLabel, selectedSymbol);
+                }
+              }}
+            >
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis 
                 dataKey="period" 
@@ -1006,6 +1076,9 @@ export function Performance() {
                     <div className="flex justify-between gap-6">
                       <span className="text-purple-600">Combined Total:</span>
                       <span className="font-semibold">${data?.combined?.toFixed(2) || '0.00'}</span>
+                    </div>
+                    <div className="text-xs text-gray-500 mt-2 italic">
+                      Click to view detailed transactions
                     </div>
                   </div>
                 );
@@ -1156,6 +1229,7 @@ export function Performance() {
         <div className="lg:col-span-2 bg-white p-6 rounded-lg shadow">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
             <h3 className="text-lg font-semibold">Weekly Net Premium as % of At-Risk Equity</h3>
+            <p className="text-xs text-gray-500 mt-1">Click on any bar to view detailed transactions for that week</p>
             <div className="flex items-center gap-2">
               <label className="text-sm text-gray-600" htmlFor="symbolFilter2">Symbol:</label>
               {/* reuse same selectedSymbol state */}
@@ -1173,7 +1247,14 @@ export function Performance() {
             </div>
           </div>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={weeklyPremiumPctData}>
+            <BarChart 
+              data={weeklyPremiumPctData}
+              onClick={(data) => {
+                if (data && data.activeLabel) {
+                  navigateToTransactionAnalysis(data.activeLabel, selectedSymbol);
+                }
+              }}
+            >
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="week" tickFormatter={(v) => {
                 const d = new Date(v + 'T00:00:00');
@@ -1206,6 +1287,9 @@ export function Performance() {
                       <span className="text-gray-600">At-Risk (Week End)</span>
                       <span className="font-semibold">${atRisk.toFixed(2)}</span>
                     </div>
+                    <div className="text-xs text-gray-500 mt-2 italic">
+                      Click to view detailed transactions
+                    </div>
                   </div>
                 );
               }} />
@@ -1220,9 +1304,21 @@ export function Performance() {
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex flex-col gap-3 mb-4">
             <h3 className="text-lg font-semibold">Monthly Net Premium as % of At-Risk Equity</h3>
+            <p className="text-xs text-gray-500 mt-1">Click on any bar to view detailed transactions for that month</p>
           </div>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={monthlyPremiumPctData}>
+            <BarChart 
+              data={monthlyPremiumPctData}
+              onClick={(data) => {
+                if (data && data.activeLabel) {
+                  // For monthly data, we need to convert the monthName back to YYYY-MM format
+                  const dataPoint = monthlyPremiumPctData.find(item => item.monthName === data.activeLabel);
+                  if (dataPoint) {
+                    navigateToTransactionAnalysis(dataPoint.month, selectedSymbol);
+                  }
+                }
+              }}
+            >
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="monthName" angle={-45} textAnchor="end" height={80} fontSize={12} />
               <YAxis tickFormatter={(v) => `${v}%`} />
@@ -1250,6 +1346,9 @@ export function Performance() {
                       <span className="text-gray-600">At-Risk (Month End)</span>
                       <span className="font-semibold">${atRisk.toFixed(2)}</span>
                     </div>
+                    <div className="text-xs text-gray-500 mt-2 italic">
+                      Click to view detailed transactions
+                    </div>
                   </div>
                 );
               }} />
@@ -1267,6 +1366,7 @@ export function Performance() {
         <div className="lg:col-span-2 bg-white p-6 rounded-lg shadow">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
             <h3 className="text-lg font-semibold">Net Premium Flow by Week</h3>
+            <p className="text-xs text-gray-500 mt-1">Click on any bar to view detailed transactions for that week</p>
             <div className="flex items-center gap-2">
               <label className="text-sm text-gray-600" htmlFor="symbolFilter">Symbol:</label>
               <select
@@ -1283,7 +1383,14 @@ export function Performance() {
             </div>
           </div>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={weeklyNetPremiumData}>
+            <BarChart 
+              data={weeklyNetPremiumData}
+              onClick={(data) => {
+                if (data && data.activeLabel) {
+                  navigateToTransactionAnalysis(data.activeLabel, selectedSymbol);
+                }
+              }}
+            >
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="week" tickFormatter={(v) => {
                 const d = new Date(v + 'T00:00:00');
@@ -1294,7 +1401,7 @@ export function Performance() {
                 const d = new Date(label + 'T00:00:00');
                 const end = new Date(d);
                 end.setDate(d.getDate() + 6);
-                return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+                return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} (Click for details)`;
               }} />
               <Legend />
               <Bar dataKey="netPremium" name="Net Premium">
@@ -1311,13 +1418,21 @@ export function Performance() {
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex flex-col gap-3 mb-4">
             <h3 className="text-lg font-semibold">Net Premium Flow by Month</h3>
+            <p className="text-xs text-gray-500 mt-1">Click on any bar to view detailed transactions for that month</p>
           </div>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={monthlyNetPremiumData}>
+            <BarChart 
+              data={monthlyNetPremiumData}
+              onClick={(data) => {
+                if (data && data.activeLabel) {
+                  navigateToTransactionAnalysis(data.activeLabel, selectedSymbol);
+                }
+              }}
+            >
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="monthName" angle={-45} textAnchor="end" height={80} fontSize={12} />
               <YAxis />
-              <Tooltip formatter={(value: number) => [`$${(value as number).toFixed(2)}`, 'Net Premium']} labelFormatter={(label: string) => label} />
+              <Tooltip formatter={(value: number) => [`$${(value as number).toFixed(2)}`, 'Net Premium']} labelFormatter={(label: string) => `${label} (Click for details)`} />
               <Legend />
               <Bar dataKey="netPremium" name="Net Premium">
                 {monthlyNetPremiumData.map((entry, idx) => (
@@ -1411,10 +1526,18 @@ export function Performance() {
       <div className="bg-white p-6 rounded-lg shadow">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
           <h3 className="text-lg font-semibold">Net ROI by Week</h3>
+          <p className="text-xs text-gray-500 mt-1">Click on any bar to view detailed transactions for that week</p>
           {/* Uses the same symbol filter select above */}
         </div>
         <ResponsiveContainer width="100%" height={280}>
-          <BarChart data={weeklyRoiData}>
+          <BarChart 
+            data={weeklyRoiData}
+            onClick={(data) => {
+              if (data && data.activeLabel) {
+                navigateToTransactionAnalysis(data.activeLabel, selectedSymbol);
+              }
+            }}
+          >
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="week" tickFormatter={(v) => {
               const d = new Date(v + 'T00:00:00');
@@ -1425,7 +1548,7 @@ export function Performance() {
               const d = new Date(label + 'T00:00:00');
               const end = new Date(d);
               end.setDate(d.getDate() + 6);
-              return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+              return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} (Click for details)`;
             }} />
             <Legend />
             <Bar dataKey="roiPct" name="Net ROI">

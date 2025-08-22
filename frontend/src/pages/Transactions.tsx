@@ -5,10 +5,12 @@ interface Transaction {
   symbol: string;
   calculated_symbol: string;
   transaction_type: string;
+  security_type?: string;
   quantity: number | string;
   price: number | string;
   transaction_date: string;
-  fees: number | string;
+  fees?: number | string;
+  commission?: number | string;
   description: string;
 }
 
@@ -129,6 +131,13 @@ export function Transactions() {
     setIsSubmitting(true);
     setManualEntryStatus('');
 
+    // Validate required fields
+    if (!manualForm.calculatedSymbol || !manualForm.quantity || !manualForm.price) {
+      setManualEntryStatus('Error: Please fill in all required fields (Symbol, Quantity, Price)');
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       const response = await fetch('http://localhost:3001/api/transactions', {
         method: 'POST',
@@ -176,11 +185,11 @@ export function Transactions() {
     setManualForm({
       transactionDate: transaction.transaction_date.split('T')[0],
       transactionType: transaction.transaction_type,
-      securityType: 'EQ', // Default, you may want to add this field to Transaction interface
+      securityType: transaction.security_type || 'EQ',
       calculatedSymbol: transaction.calculated_symbol,
       quantity: parseFloat(String(transaction.quantity)),
       price: parseFloat(String(transaction.price)),
-      commission: parseFloat(String(transaction.fees || '0')),
+      commission: parseFloat(String(transaction.commission || '0')),
       description: transaction.description,
     });
     setShowManualEntry(true);
@@ -193,6 +202,13 @@ export function Transactions() {
     
     setIsUpdating(true);
     setManualEntryStatus('');
+
+    // Validate required fields
+    if (!manualForm.calculatedSymbol || !manualForm.quantity || !manualForm.price) {
+      setManualEntryStatus('Error: Please fill in all required fields (Symbol, Quantity, Price)');
+      setIsUpdating(false);
+      return;
+    }
 
     try {
       const response = await fetch(`http://localhost:3001/api/transactions/${editingTransaction.id}`, {
