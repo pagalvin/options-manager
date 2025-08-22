@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { useEffect } from 'react';
 import { Navigation } from './components/Navigation';
 import { Dashboard } from './pages/Dashboard';
 import { Transactions } from './pages/Transactions';
@@ -15,6 +16,61 @@ import { ChartView } from './pages/ChartView';
 import { ChatPage } from './pages/ChatPage';
 
 function App() {
+  // Timer to fetch AAPL price every hour to keep E*TRADE API session active
+  useEffect(() => {
+    const fetchAAPLPriceFromETrade = async () => {
+      try {
+        // Get the session ID from localStorage
+        const sessionId = localStorage.getItem('etrade_session_id');
+        
+        if (!sessionId) {
+          console.log(`[${new Date().toISOString()}] No E*TRADE session ID found, skipping price fetch`);
+          return;
+        }
+
+        console.log(`[${new Date().toISOString()}] Fetching AAPL price from E*TRADE to keep session active...`);
+        
+        // Use E*TRADE quote endpoint with session header
+        const response = await fetch('/api/etrade/quote/AAPL', {
+          headers: {
+            'x-session-id': sessionId
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const lastTrade = data?.quoteResponse?.quoteData?.[0]?.all?.lastTrade;
+          console.log(`[${new Date().toISOString()}] E*TRADE AAPL price: $${lastTrade || 'N/A'}`);
+        } else {
+          console.warn(`[${new Date().toISOString()}] E*TRADE quote API returned status:`, response.status);
+        }
+      } catch (error) {
+        console.warn(`[${new Date().toISOString()}] Failed to fetch AAPL price from E*TRADE:`, error);
+        
+        // Try the simple environment check as fallback to keep some API activity
+        try {
+          const envResponse = await fetch('/api/etrade/environment');
+          if (envResponse.ok) {
+            console.log(`[${new Date().toISOString()}] E*TRADE environment check succeeded (fallback)`);
+          }
+        } catch (fallbackError) {
+          console.warn(`[${new Date().toISOString()}] E*TRADE environment check also failed:`, fallbackError);
+        }
+      }
+    };
+
+    // Fetch immediately on app start
+    fetchAAPLPriceFromETrade();
+
+    // Set up hourly interval (3600000 ms = 1 hour)
+    const intervalId = setInterval(fetchAAPLPriceFromETrade, 3600000);
+
+    // Cleanup interval on unmount
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, []);
+
   return (
     <Router>
       <div className="min-h-screen bg-background">

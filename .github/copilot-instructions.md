@@ -11,7 +11,7 @@ Never put passwords, API keys, or other sensitive information in the codebase. U
 
 # Command-line instructions
 
-You are running on a windows computer. Always use valid and syntactically correct  powershell commands.
+Always use PowerShell for command-line instructions.
 
 # ReactJS Development Instructions
 
