@@ -21,6 +21,7 @@ interface AnalysisFilters {
   fromDate: string;
   toDate: string;
   optionsOnly: boolean;
+  marginTransfersOnly: boolean;
 }
 
 interface EditTransaction {
@@ -54,6 +55,7 @@ export function TransactionAnalysis() {
     fromDate: urlFromDate || '',
     toDate: urlToDate || '',
     optionsOnly: false,
+    marginTransfersOnly: false,
   });
 
   const [activeQuickFilter, setActiveQuickFilter] = useState<string>('');
@@ -117,6 +119,15 @@ export function TransactionAnalysis() {
       });
     }
 
+    // Filter by margin transfers only
+    if (currentFilters.marginTransfersOnly) {
+      filtered = filtered.filter(t => {
+        return t.description?.includes('MARGIN') || 
+               t.description?.includes('TRNSFR') ||
+               t.transaction_type?.toLowerCase().includes('margin');
+      });
+    }
+
     // Filter by date range
     if (currentFilters.fromDate) {
       filtered = filtered.filter(t => {
@@ -164,6 +175,7 @@ export function TransactionAnalysis() {
       fromDate: '',
       toDate: '',
       optionsOnly: false,
+      marginTransfersOnly: false,
     };
     setFilters(clearedFilters);
     setActiveQuickFilter('');
@@ -425,6 +437,7 @@ export function TransactionAnalysis() {
         fromDate: urlFromDate || '',
         toDate: urlToDate || '',
         optionsOnly: false,
+        marginTransfersOnly: false,
       };
       setFilters(newFilters);
       if (transactions.length > 0) {
@@ -589,6 +602,21 @@ export function TransactionAnalysis() {
             </span>
           </label>
         </div>
+
+        {/* Margin Transfers Filter Checkbox */}
+        <div className="mb-4">
+          <label className="flex items-center">
+            <input
+              type="checkbox"
+              checked={filters.marginTransfersOnly}
+              onChange={(e) => handleFilterChange('marginTransfersOnly', e.target.checked)}
+              className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+            />
+            <span className="text-sm font-medium text-gray-700">
+              Show margin transfers only
+            </span>
+          </label>
+        </div>
         
         <div className="flex items-center justify-between">
           <div className="text-sm text-gray-600">
@@ -597,6 +625,7 @@ export function TransactionAnalysis() {
             {filters.fromDate && ` from ${new Date(filters.fromDate).toLocaleDateString()}`}
             {filters.toDate && ` to ${new Date(filters.toDate).toLocaleDateString()}`}
             {filters.optionsOnly && ` (options only)`}
+            {filters.marginTransfersOnly && ` (margin transfers only)`}
           </div>
           
           <button

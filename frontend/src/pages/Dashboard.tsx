@@ -1,6 +1,16 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { OptionsExposureHeatMap } from '../components/OptionsExposureHeatMap';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer
+} from 'recharts';
 
 interface Transaction {
   id: string;
@@ -180,6 +190,240 @@ export function Dashboard() {
   const totalInvested = positions.reduce((sum, p) => sum + (p.currentShares * p.averageCost), 0);
   const totalCurrentValue = positions.reduce((sum, p) => sum + p.currentValue, 0);
 
+  // Helper functions for capital by source calculation
+  const formatYyyyMmDd = (d: Date) => {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const startOfWeekSunday = (d: Date) => {
+    const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const day = date.getDay(); // 0 = Sunday
+    const diff = day; // days since Sunday
+    date.setDate(date.getDate() - diff);
+    date.setHours(0, 0, 0, 0);
+    return date;
+  };
+
+  // Threshold date (same as Performance page)
+  const thresholdWeekStart = (() => {
+    const ref = new Date('2025-02-20T00:00:00');
+    return startOfWeekSunday(ref);
+  })();
+
+  // Calculate capital by source data
+  const calculateCapitalBySource = (period: 'weekly' | 'monthly') => {
+    // First, calculate closed equity gains/losses using FIFO
+    const equityTransactions = transactions.filter(t => 
+      t.security_type === 'EQ' && 
+      (t.transaction_type === 'Bought' || t.transaction_type === 'Sold')
+    );
+
+    // Group by symbol to track buy/sell pairs
+    const symbolTransactions = new Map<string, Array<{
+      date: Date;
+      type: 'Bought' | 'Sold';
+      quantity: number;
+      amount: number;
+      price: number;
+    }>>();
+
+    equityTransactions.forEach(t => {
+      const symbol = t.calculated_symbol;
+      if (!symbol) return;
+      
+      if (!symbolTransactions.has(symbol)) {
+        symbolTransactions.set(symbol, []);
+      }
+      
+      symbolTransactions.get(symbol)!.push({
+        date: new Date(t.transaction_date),
+        type: t.transaction_type as 'Bought' | 'Sold',
+        quantity: Math.abs(Number(t.quantity)),
+        amount: Number(t.amount), // Keep original sign: negative for buys, positive for sales
+        price: Number(t.price)
+      });
+    });
+
+    // Calculate completed transactions (where shares were bought and then sold)
+    const completedTransactions: Array<{
+      symbol: string;
+      sellDate: Date;
+      gainLoss: number;
+      quantity: number;
+    }> = [];
+
+    symbolTransactions.forEach((txs, symbol) => {
+      const sortedTxs = txs.sort((a, b) => a.date.getTime() - b.date.getTime());
+      
+      // Use FIFO to match buys and sells
+      const buyQueue: Array<{ quantity: number; costBasis: number; date: Date }> = [];
+      
+      sortedTxs.forEach(tx => {
+        if (tx.type === 'Bought') {
+          // Add to buy queue - amount is negative for purchases, so use absolute value for cost basis
+          buyQueue.push({
+            quantity: tx.quantity,
+            costBasis: Math.abs(tx.amount), // Total cost for this purchase
+            date: tx.date
+          });
+        } else if (tx.type === 'Sold' && buyQueue.length > 0) {
+          let remainingToSell = tx.quantity;
+          let totalCostBasis = 0;
+          const saleProceeds = tx.amount; // Amount is positive for sales
+          
+          // Match against oldest purchases first (FIFO)
+          while (remainingToSell > 0 && buyQueue.length > 0) {
+            const oldestBuy = buyQueue[0];
+            const sharesToMatch = Math.min(remainingToSell, oldestBuy.quantity);
+            
+            // Calculate proportional cost basis for the shares being sold
+            const avgCostPerShare = oldestBuy.costBasis / oldestBuy.quantity;
+            const costBasisForSale = sharesToMatch * avgCostPerShare;
+            totalCostBasis += costBasisForSale;
+            
+            // Update the buy queue
+            oldestBuy.quantity -= sharesToMatch;
+            oldestBuy.costBasis -= costBasisForSale;
+            
+            if (oldestBuy.quantity <= 0) {
+              buyQueue.shift(); // Remove completely matched buy
+            }
+            
+            remainingToSell -= sharesToMatch;
+          }
+          
+          if (totalCostBasis > 0) {
+            // Calculate proportional sale proceeds for matched shares
+            const proportionalSaleProceeds = (tx.quantity - remainingToSell) / tx.quantity * saleProceeds;
+            const gainLoss = proportionalSaleProceeds - totalCostBasis;
+            
+            completedTransactions.push({
+              symbol,
+              sellDate: tx.date,
+              gainLoss,
+              quantity: tx.quantity - remainingToSell
+            });
+          }
+        }
+      });
+    });
+
+    // Now calculate capital by source including completed equity gains
+    const capitalData = new Map<string, {
+      period: string;
+      directTransferIn: number;
+      directTransferOut: number;
+      interestDividends: number;
+      netPremium: number;
+      netEquityProceeds: number;
+    }>();
+
+    transactions.forEach(t => {
+      const d = new Date(t.transaction_date);
+      if (d < thresholdWeekStart) return;
+
+      let key: string;
+      if (period === 'weekly') {
+        const weekStart = startOfWeekSunday(d);
+        key = formatYyyyMmDd(weekStart);
+      } else {
+        key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      }
+
+      if (!capitalData.has(key)) {
+        capitalData.set(key, {
+          period: key,
+          directTransferIn: 0,
+          directTransferOut: 0,
+          interestDividends: 0,
+          netPremium: 0,
+          netEquityProceeds: 0
+        });
+      }
+
+      const data = capitalData.get(key)!;
+      const amount = Number(t.amount) || 0;
+
+      // Categorize by transaction type and security type
+      if (t.transaction_type === 'Online Transfer') {
+        if (amount > 0) {
+          data.directTransferIn += amount;
+        } else {
+          data.directTransferOut += amount; // Keep negative for outflows
+        }
+      } else if (t.transaction_type === 'Dividend') {
+        data.interestDividends += amount;
+      } else if (t.security_type === 'OPTN') {
+        data.netPremium += amount;
+      }
+    });
+
+    // Add completed equity gains/losses
+    completedTransactions.forEach(ct => {
+      if (ct.sellDate < thresholdWeekStart) return;
+      
+      let key: string;
+      if (period === 'weekly') {
+        const weekStart = startOfWeekSunday(ct.sellDate);
+        key = formatYyyyMmDd(weekStart);
+      } else {
+        key = `${ct.sellDate.getFullYear()}-${String(ct.sellDate.getMonth() + 1).padStart(2, '0')}`;
+      }
+      
+      if (!capitalData.has(key)) {
+        capitalData.set(key, {
+          period: key,
+          directTransferIn: 0,
+          directTransferOut: 0,
+          interestDividends: 0,
+          netPremium: 0,
+          netEquityProceeds: 0
+        });
+      }
+      
+      const data = capitalData.get(key)!;
+      data.netEquityProceeds += ct.gainLoss;
+    });
+
+    return Array.from(capitalData.values()).sort((a, b) => a.period.localeCompare(b.period));
+  };
+
+  // Calculate cumulative values for capital data
+  const calculateCumulativeCapital = (data: ReturnType<typeof calculateCapitalBySource>) => {
+    let cumulativeTransferIn = 0;
+    let cumulativeTransferOut = 0;
+    let cumulativeInterestDividends = 0;
+    let cumulativeNetPremium = 0;
+    let cumulativeNetEquityProceeds = 0;
+
+    return data.map(item => {
+      cumulativeTransferIn += item.directTransferIn;
+      cumulativeTransferOut += item.directTransferOut;
+      cumulativeInterestDividends += item.interestDividends;
+      cumulativeNetPremium += item.netPremium;
+      cumulativeNetEquityProceeds += item.netEquityProceeds;
+
+      // Calculate net total of all sources
+      const netTotal = cumulativeTransferIn + cumulativeTransferOut + cumulativeInterestDividends + cumulativeNetPremium + cumulativeNetEquityProceeds;
+
+      return {
+        period: item.period,
+        directTransferIn: cumulativeTransferIn,
+        directTransferOut: cumulativeTransferOut,
+        interestDividends: cumulativeInterestDividends,
+        netPremium: cumulativeNetPremium,
+        netEquityProceeds: cumulativeNetEquityProceeds,
+        netTotal: netTotal
+      };
+    });
+  };
+
+  const weeklyCapitalData = calculateCumulativeCapital(calculateCapitalBySource('weekly'));
+  const monthlyCapitalData = calculateCumulativeCapital(calculateCapitalBySource('monthly'));
+
   // System information
   const totalTransactions = transactions.length;
   const totalOptionTransactions = transactions.filter(t => t.security_type === 'OPTN').length;
@@ -229,6 +473,83 @@ export function Dashboard() {
 
       {/* Options Exposure Heat Map */}
       <OptionsExposureHeatMap positions={positions} />
+
+      {/* Capital by Source Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Weekly Capital by Source */}
+        <div className="bg-white p-6 rounded-lg shadow">
+          <h3 className="text-lg font-semibold mb-4">Cumulative Weekly Capital by Source</h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={weeklyCapitalData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis 
+                dataKey="period" 
+                tickFormatter={(v) => {
+                  const d = new Date(v + 'T00:00:00');
+                  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                }} 
+              />
+              <YAxis />
+              <Tooltip 
+                formatter={(value: number, name: string) => [`$${value.toFixed(2)}`, name]}
+                labelFormatter={(label: string) => {
+                  const start = new Date(label + 'T00:00:00');
+                  const end = new Date(start);
+                  end.setDate(start.getDate() + 6);
+                  return `Week of ${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+                }}
+              />
+              <Legend />
+              <Line type="monotone" dataKey="directTransferIn" stroke="#10b981" strokeWidth={2} name="Cumulative Transfer In" />
+              <Line type="monotone" dataKey="directTransferOut" stroke="#ef4444" strokeWidth={2} name="Cumulative Transfer Out" />
+              <Line type="monotone" dataKey="interestDividends" stroke="#8b5cf6" strokeWidth={2} name="Cumulative Interest & Dividends" />
+              <Line type="monotone" dataKey="netPremium" stroke="#3b82f6" strokeWidth={2} name="Cumulative Net Premium" />
+              <Line type="monotone" dataKey="netEquityProceeds" stroke="#f59e0b" strokeWidth={2} name="Cumulative Equity Gains/Losses" />
+              <Line type="monotone" dataKey="netTotal" stroke="#1f2937" strokeWidth={3} name="Net Total (All Sources)" strokeDasharray="5 5" />
+            </LineChart>
+          </ResponsiveContainer>
+          <p className="mt-2 text-xs text-gray-500">Cumulative capital flows by source since Feb 2025. Shows running totals over time.</p>
+        </div>
+
+        {/* Monthly Capital by Source */}
+        <div className="bg-white p-6 rounded-lg shadow">
+          <h3 className="text-lg font-semibold mb-4">Cumulative Monthly Capital by Source</h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={monthlyCapitalData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis 
+                dataKey="period" 
+                tickFormatter={(v) => {
+                  const [year, month] = v.split('-');
+                  const date = new Date(parseInt(year), parseInt(month) - 1);
+                  return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+                }}
+                angle={-45}
+                textAnchor="end"
+                height={80}
+                fontSize={12}
+              />
+              <YAxis />
+              <Tooltip 
+                formatter={(value: number, name: string) => [`$${value.toFixed(2)}`, name]}
+                labelFormatter={(label: string) => {
+                  const [year, month] = label.split('-');
+                  const monthName = new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                  return monthName;
+                }}
+              />
+              <Legend />
+              <Line type="monotone" dataKey="directTransferIn" stroke="#10b981" strokeWidth={2} name="Cumulative Transfer In" />
+              <Line type="monotone" dataKey="directTransferOut" stroke="#ef4444" strokeWidth={2} name="Cumulative Transfer Out" />
+              <Line type="monotone" dataKey="interestDividends" stroke="#8b5cf6" strokeWidth={2} name="Cumulative Interest & Dividends" />
+              <Line type="monotone" dataKey="netPremium" stroke="#3b82f6" strokeWidth={2} name="Cumulative Net Premium" />
+              <Line type="monotone" dataKey="netEquityProceeds" stroke="#f59e0b" strokeWidth={2} name="Cumulative Equity Gains/Losses" />
+              <Line type="monotone" dataKey="netTotal" stroke="#1f2937" strokeWidth={3} name="Net Total (All Sources)" strokeDasharray="5 5" />
+            </LineChart>
+          </ResponsiveContainer>
+          <p className="mt-2 text-xs text-gray-500">Cumulative capital flows by source since Feb 2025. Shows running totals over time.</p>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white p-6 rounded-lg shadow">

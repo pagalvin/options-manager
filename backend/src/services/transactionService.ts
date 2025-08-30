@@ -32,6 +32,16 @@ export class TransactionService {
           description: row['Description'],
         };
 
+        // Handle Transfer transactions with empty security_type and calculated_symbol
+        if (transaction.transactionType === 'Transfer') {
+          if (!transaction.securityType || transaction.securityType.trim() === '') {
+            transaction.securityType = 'TRANSFER';
+          }
+          if (!transaction.calculatedSymbol || transaction.calculatedSymbol.trim() === '') {
+            transaction.calculatedSymbol = 'TRANSFER';
+          }
+        }
+
         // console.log('Parsed transaction:', transaction);
 
         // // Validate required fields before insert
@@ -114,9 +124,13 @@ export class TransactionService {
       RETURNING id
     `;
     
+    const securityType = transaction.securityType === 'EQ' ? 'STOCK' : 
+                        transaction.securityType === 'TRANSFER' ? 'TRANSFER' :
+                        transaction.securityType;
+    
     await client.query(query, [
       transaction.calculatedSymbol,
-      transaction.securityType === 'EQ' ? 'STOCK' : transaction.securityType,
+      securityType,
     ]);
   }
 
@@ -453,7 +467,9 @@ export class TransactionService {
       
       // Validate required fields
       if (!transactionData.transactionDate || !transactionData.transactionType || 
-          !transactionData.calculatedSymbol || !transactionData.quantity || !transactionData.price) {
+          !transactionData.calculatedSymbol || 
+          (transactionData.quantity === undefined || transactionData.quantity === null) || 
+          (transactionData.price === undefined || transactionData.price === null)) {
         throw new Error('Missing required fields: transactionDate, transactionType, calculatedSymbol, quantity, price');
       }
 

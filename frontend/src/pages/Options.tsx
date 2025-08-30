@@ -29,6 +29,7 @@ interface OptionAnalysis {
     firstTransactionDate?: Date;
     earningsDate?: string | null;
     daysToEarnings?: number | null;
+    maxAnnualizedROI: number;
 }
 
 export function Options() {
@@ -272,6 +273,7 @@ export function Options() {
                 recommendedWeeklyPremium: null,
                 earningsDate: earnings.earningsDate,
                 daysToEarnings: earnings.daysToEarnings,
+                maxAnnualizedROI: 0,
             });
         });
 
@@ -446,6 +448,27 @@ export function Options() {
             // if (totalInvested > 0 && analysis.currentMaxPotentialProfit > 0) {
             if (true) {
                 analysis.currentMaxGainLossPercentage = (analysis.currentMaxPotentialProfit / totalInvested) * 100;
+            }
+
+            // Calculate maximum annualized ROI for individual stock
+            if (symbolTransactions.length > 0 && totalInvested > 0) {
+                // Get earliest and most recent transaction dates
+                const transactionDates = symbolTransactions.map(t => new Date(t.transaction_date));
+                const earliestDate = new Date(Math.min(...transactionDates.map(d => d.getTime())));
+                const mostRecentDate = new Date(Math.max(...transactionDates.map(d => d.getTime())));
+                
+                // Calculate days between earliest and most recent transactions
+                const msPerDay = 1000 * 60 * 60 * 24;
+                const daysBetween = Math.max(1, (mostRecentDate.getTime() - earliestDate.getTime()) / msPerDay);
+                
+                // Calculate annualized ROI based on max potential profit
+                const rawRoi = analysis.currentMaxPotentialProfit / totalInvested; // decimal ROI
+                const annualizationFactor = 365 / daysBetween;
+                
+                // Apply compound interest formula: (1 + roi)^(365/days) - 1
+                analysis.maxAnnualizedROI = rawRoi > -1 && isFinite(annualizationFactor) 
+                    ? (Math.pow(1 + rawRoi, annualizationFactor) - 1) * 100 
+                    : 0;
             }
         });
 
@@ -649,6 +672,12 @@ export function Options() {
                                     >
                                         Max Gain/Loss %{getSortIndicator("currentMaxGainLossPercentage")}
                                     </th>
+                                    <th
+                                        className={thRight}
+                                        onClick={() => handleSort("maxAnnualizedROI")}
+                                    >
+                                        Max Annualized ROI %{getSortIndicator("maxAnnualizedROI")}
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
@@ -787,6 +816,17 @@ export function Options() {
                                                 }`}
                                             >
                                                 {formatNumber(analysis.currentMaxGainLossPercentage)}%
+                                            </td>
+                                            <td
+                                                className={`${baseRowStyles()} font-medium text-right ${
+                                                    analysis.maxAnnualizedROI >= 0
+                                                        ? "text-green-600"
+                                                        : "text-red-600"
+                                                }`}
+                                            >
+                                                {isFinite(analysis.maxAnnualizedROI) && analysis.maxAnnualizedROI !== 0
+                                                    ? `${formatNumber(analysis.maxAnnualizedROI)}%`
+                                                    : "N/A"}
                                             </td>
                                         </tr>
                                     ))}
@@ -1066,6 +1106,36 @@ export function Options() {
                                                 )
                                         )}
                                         % */}
+                                    </td>
+
+                                    <td
+                                        className={`px-4 py-4 whitespace-nowrap text-sm font-bold text-right ${
+                                            optionAnalysis
+                                                .filter((analysis) => !hideZeroLots || analysis.totalLots > 0)
+                                                .filter((analysis) => isFinite(analysis.maxAnnualizedROI) && analysis.maxAnnualizedROI !== 0)
+                                                .reduce((sum, a) => sum + a.maxAnnualizedROI, 0) /
+                                                Math.max(
+                                                    optionAnalysis
+                                                        .filter((analysis) => !hideZeroLots || analysis.totalLots > 0)
+                                                        .filter((analysis) => isFinite(analysis.maxAnnualizedROI) && analysis.maxAnnualizedROI !== 0).length,
+                                                    1
+                                                ) >=
+                                            0
+                                                ? "text-green-600"
+                                                : "text-red-600"
+                                        }`}
+                                    >
+                                        {(() => {
+                                            const validAnalyses = optionAnalysis
+                                                .filter((analysis) => !hideZeroLots || analysis.totalLots > 0)
+                                                .filter((analysis) => isFinite(analysis.maxAnnualizedROI) && analysis.maxAnnualizedROI !== 0);
+                                            const avgAnnualizedROI = validAnalyses.length > 0
+                                                ? validAnalyses.reduce((sum, a) => sum + a.maxAnnualizedROI, 0) / validAnalyses.length
+                                                : 0;
+                                            return isFinite(avgAnnualizedROI) && avgAnnualizedROI !== 0
+                                                ? `${formatNumber(avgAnnualizedROI)}%`
+                                                : "N/A";
+                                        })()}
                                     </td>
                                 </tr>
                             </tfoot>

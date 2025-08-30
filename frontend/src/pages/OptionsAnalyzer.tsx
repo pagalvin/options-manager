@@ -1,4 +1,4 @@
-import { DeleteIcon, EditIcon, RefreshCw, Wand2, MessageSquare } from 'lucide-react';
+import { DeleteIcon, EditIcon, RefreshCw, Wand2, MessageSquare, RotateCcw } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { FinancialLinks } from '../components/FinancialLinks';
 import { ChatInterface } from '../components/ChatInterface';
@@ -12,6 +12,8 @@ interface ManualOptionsAnalysis {
   option_date?: string | null;
   strike_price?: number | null;
   premium_per_contract?: number | null;
+  implied_volatility?: number | null;
+  delta?: number | null;
   notes?: string | null;
   next_earnings_date?: string | null;
   company_name?: string | null;
@@ -27,6 +29,8 @@ interface FormData {
   option_date: string;
   strike_price: string;
   premium_per_contract: string;
+  implied_volatility: string;
+  delta: string;
   notes: string;
   next_earnings_date: string;
   company_name: string;
@@ -55,6 +59,8 @@ export function OptionsAnalyzer() {
     option_date: '',
     strike_price: '',
     premium_per_contract: '',
+    implied_volatility: '',
+    delta: '',
     notes: '',
     next_earnings_date: '',
     company_name: '',
@@ -138,6 +144,134 @@ export function OptionsAnalyzer() {
     return (netGain / cashNeeded) * 100;
   };
 
+  // Calculate strike price delta percent
+  const calculateStrikePriceDeltaPercent = (marketPrice: number | null, strikePrice: number | null): number | null => {
+    if (!marketPrice || !strikePrice || marketPrice <= 0) return null;
+    return ((strikePrice - marketPrice) / marketPrice) * 100;
+  };
+
+  // Standard normal cumulative distribution function
+  const normalCDF = (x: number): number => {
+    // Approximation using error function
+    const a1 =  0.254829592;
+    const a2 = -0.284496736;
+    const a3 =  1.421413741;
+    const a4 = -1.453152027;
+    const a5 =  1.061405429;
+    const p  =  0.3275911;
+
+    const sign = x < 0 ? -1 : 1;
+    x = Math.abs(x) / Math.sqrt(2.0);
+
+    const t = 1.0 / (1.0 + p * x);
+    const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+
+    return 0.5 * (1.0 + sign * y);
+  };
+
+  // Calculate probability that stock will finish above strike price (Black-Scholes)
+  const calculateStrikeProbability = (
+    currentPrice: number | null,
+    strikePrice: number | null,
+    impliedVolatility: number | null,
+    timeToExpiration: number | null, // in days
+    delta?: number | null,
+    nextEarningsDate?: string | null
+  ): number | null => {
+    // Method 1: Use Delta if available (preferred method)
+    if (delta && delta !== 0) {
+      let deltaProb = Math.abs(delta) * 100;
+      
+      // Adjust for earnings proximity if available
+      if (nextEarningsDate) {
+        const earningsDays = Math.floor(
+          (new Date(nextEarningsDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
+        );
+        
+        if (earningsDays > 0 && earningsDays < 7) {
+          // Reduce confidence near earnings - cap between 30-70%
+          deltaProb = Math.max(30, Math.min(70, deltaProb * 0.8));
+        }
+      }
+      
+      return Math.round(deltaProb);
+    }
+
+    // Method 2: Fallback to Black-Scholes if no Delta but have IV
+    if (!currentPrice || !strikePrice || !impliedVolatility || !timeToExpiration || currentPrice <= 0 || timeToExpiration <= 0) {
+      return null;
+    }
+
+    const riskFreeRate = 0.05; // 5% risk-free rate (approximate)
+    const T = timeToExpiration / 365; // Convert days to years
+    const volatility = impliedVolatility / 100; // Convert percentage to decimal
+
+    // Black-Scholes d2 calculation
+    const d2 = (Math.log(currentPrice / strikePrice) + (riskFreeRate - 0.5 * volatility * volatility) * T) 
+               / (volatility * Math.sqrt(T));
+
+    // Probability of finishing above strike (for covered calls)
+    return normalCDF(d2) * 100; // Return as percentage
+  };
+
+  // Margin analysis calculations (assuming 13.20% margin rate)
+  const MARGIN_RATE = 0.132; // 13.20%
+
+  // Calculate margin interest by expiration date
+  const calculateMarginInterestToExpiration = (lots: number | null, marketPrice: number | null, premium: number | null, optionDate: string | null): number | null => {
+    if (!lots || !marketPrice || !premium || !optionDate) return null;
+    const cashNeeded = calculateCashNeeded(lots, marketPrice, premium);
+    if (!cashNeeded || cashNeeded <= 0) return null;
+    
+    const daysToExpiration = calculateDaysFromToday(optionDate);
+    if (!daysToExpiration || daysToExpiration <= 0) return null;
+    
+    // Assume entire cash needed is from margin
+    const marginAmount = cashNeeded;
+    const dailyRate = MARGIN_RATE / 365;
+    return marginAmount * dailyRate * daysToExpiration;
+  };
+
+  // Calculate margin interest per day
+  const calculateMarginInterestPerDay = (lots: number | null, marketPrice: number | null, premium: number | null): number | null => {
+    if (!lots || !marketPrice || !premium) return null;
+    const cashNeeded = calculateCashNeeded(lots, marketPrice, premium);
+    if (!cashNeeded || cashNeeded <= 0) return null;
+    
+    const marginAmount = cashNeeded;
+    const dailyRate = MARGIN_RATE / 365;
+    return marginAmount * dailyRate;
+  };
+
+  // Calculate margin interest per week
+  const calculateMarginInterestPerWeek = (lots: number | null, marketPrice: number | null, premium: number | null): number | null => {
+    const dailyInterest = calculateMarginInterestPerDay(lots, marketPrice, premium);
+    return dailyInterest ? dailyInterest * 7 : null;
+  };
+
+  // Calculate margin interest per month (30 days)
+  const calculateMarginInterestPerMonth = (lots: number | null, marketPrice: number | null, premium: number | null): number | null => {
+    const dailyInterest = calculateMarginInterestPerDay(lots, marketPrice, premium);
+    return dailyInterest ? dailyInterest * 30 : null;
+  };
+
+  // Calculate net percent gain when accounting for margin interest costs
+  const calculateNetGainWhenMargined = (lots: number | null, marketPrice: number | null, strikePrice: number | null, premium: number | null, optionDate: string | null): number | null => {
+    if (!lots || !marketPrice || !strikePrice || !premium || !optionDate) return null;
+    
+    const cashNeeded = calculateCashNeeded(lots, marketPrice, premium);
+    const netOnStrike = calculateNetOnStrike(lots, marketPrice, strikePrice, premium);
+    const marginInterest = calculateMarginInterestToExpiration(lots, marketPrice, premium, optionDate);
+    
+    if (!cashNeeded || cashNeeded <= 0 || !netOnStrike || !marginInterest) return null;
+    
+    // Net gain after subtracting margin interest costs
+    const netGainAfterMargin = netOnStrike - marginInterest;
+    
+    // Return as percentage of cash needed
+    return (netGainAfterMargin / cashNeeded) * 100;
+  };
+
   // Handle column sorting
   const handleSort = (column: string) => {
     if (sortColumn === column) {
@@ -177,6 +311,31 @@ export function OptionsAnalyzer() {
           // Force numeric sorting for market price
           aValue = Number(a.market_price) || 0;
           bValue = Number(b.market_price) || 0;
+          return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+        case 'strike_price_delta':
+          // Sort by strike price delta percent
+          aValue = calculateStrikePriceDeltaPercent(a.market_price || null, a.strike_price || null) || -999999;
+          bValue = calculateStrikePriceDeltaPercent(b.market_price || null, b.strike_price || null) || -999999;
+          return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+        case 'cash_needed':
+          // Sort by cash needed
+          aValue = calculateCashNeeded(a.lots || null, a.market_price || null, a.premium_per_contract || null) || 0;
+          bValue = calculateCashNeeded(b.lots || null, b.market_price || null, b.premium_per_contract || null) || 0;
+          return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+        case 'net_on_strike':
+          // Sort by net gain on strike
+          aValue = calculateNetOnStrike(a.lots || null, a.market_price || null, a.strike_price || null, a.premium_per_contract || null) || 0;
+          bValue = calculateNetOnStrike(b.lots || null, b.market_price || null, b.strike_price || null, b.premium_per_contract || null) || 0;
+          return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+        case 'percent_gain_on_strike':
+          // Sort by percent gain on strike
+          aValue = calculatePercentGainOnStrike(a.lots || null, a.market_price || null, a.strike_price || null, a.premium_per_contract || null) || -999999;
+          bValue = calculatePercentGainOnStrike(b.lots || null, b.market_price || null, b.strike_price || null, b.premium_per_contract || null) || -999999;
+          return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+        case 'net_when_margined':
+          // Sort by net gain when margined percent
+          aValue = calculateNetGainWhenMargined(a.lots || null, a.market_price || null, a.strike_price || null, a.premium_per_contract || null, a.option_date || null) || -999999;
+          bValue = calculateNetGainWhenMargined(b.lots || null, b.market_price || null, b.strike_price || null, b.premium_per_contract || null, b.option_date || null) || -999999;
           return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
         default:
           return 0;
@@ -276,6 +435,8 @@ export function OptionsAnalyzer() {
       option_date: '',
       strike_price: '',
       premium_per_contract: '',
+      implied_volatility: '',
+      delta: '',
       notes: '',
       next_earnings_date: '',
       company_name: '',
@@ -302,6 +463,8 @@ export function OptionsAnalyzer() {
         option_date: formData.option_date || null,
         strike_price: formData.strike_price ? parseFloat(formData.strike_price) : null,
         premium_per_contract: formData.premium_per_contract ? parseFloat(formData.premium_per_contract) : null,
+        implied_volatility: formData.implied_volatility ? parseFloat(formData.implied_volatility) : null,
+        delta: formData.delta ? parseFloat(formData.delta) : null,
         notes: formData.notes.trim() || null,
         next_earnings_date: formData.next_earnings_date || null,
         company_name: formData.company_name.trim() || null,
@@ -361,6 +524,8 @@ export function OptionsAnalyzer() {
       option_date: normalizeDateInput(entry.option_date),
       strike_price: entry.strike_price?.toString() || '',
       premium_per_contract: entry.premium_per_contract?.toString() || '',
+      implied_volatility: entry.implied_volatility?.toString() || '',
+      delta: entry.delta?.toString() || '',
       notes: entry.notes || '',
       next_earnings_date: normalizeDateInput(entry.next_earnings_date),
       company_name: entry.company_name || '',
@@ -369,7 +534,7 @@ export function OptionsAnalyzer() {
     setShowForm(true);
   };
 
-  // Update strategy for existing entry (similar to updateStrategy but for table rows)
+  // Update strategy for existing entry (toggles lots: 0 → 1, >0 → 0)
   const updateStrategyForEntry = async (entry: ManualOptionsAnalysis) => {
     const symbol = entry.security.trim().toUpperCase();
     if (!symbol) {
@@ -438,6 +603,8 @@ export function OptionsAnalyzer() {
         if (!c.bid || c.bid <= 0) return null;
         const strikePrice = c.strikePrice as number;
         const premium = c.bid as number;
+        const impliedVolatility = c.impliedVolatility || c.iv || null; // Get IV from E*TRADE
+        const delta = c.delta || null; // Get Delta from E*TRADE
         const totalRevenue = strikePrice + premium;
         const gainPercent = ((totalRevenue - currentPrice) / currentPrice) * 100;
         if (gainPercent >= 1) {
@@ -446,10 +613,12 @@ export function OptionsAnalyzer() {
             premium,
             totalRevenue,
             gainPercent,
+            impliedVolatility,
+            delta,
           };
         }
         return null;
-      }).filter(Boolean) as Array<{ strikePrice: number; premium: number; totalRevenue: number; gainPercent: number }>;
+      }).filter(Boolean) as Array<{ strikePrice: number; premium: number; totalRevenue: number; gainPercent: number; impliedVolatility: number | null; delta: number | null }>;
 
       if (opportunities.length === 0) {
         const expDate = new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString();
@@ -469,7 +638,10 @@ export function OptionsAnalyzer() {
         option_date: optionDate,
         strike_price: chosen.strikePrice,
         premium_per_contract: chosen.premium,
-        next_earnings_date: nextEarningsDate
+        next_earnings_date: nextEarningsDate,
+        implied_volatility: chosen.impliedVolatility ? Number((chosen.impliedVolatility * 100).toFixed(2)) : null, // Convert to percentage
+        delta: chosen.delta ? Number(chosen.delta.toFixed(4)) : null, // Store Delta from E*TRADE
+        lots: (entry.lots && entry.lots > 0) ? 0 : 1 // Toggle: set to 1 if zero, set to 0 if > 0
       };
 
       // Save the updated entry
@@ -571,6 +743,8 @@ export function OptionsAnalyzer() {
         if (!c.bid || c.bid <= 0) return null;
         const strikePrice = c.strikePrice as number;
         const premium = c.bid as number;
+        const impliedVolatility = c.impliedVolatility || c.iv || null; // Get IV from E*TRADE
+        const delta = c.delta || null; // Get Delta from E*TRADE
         const totalRevenue = strikePrice + premium;
         const gainPercent = ((totalRevenue - currentPrice) / currentPrice) * 100;
         if (gainPercent >= 1) {
@@ -579,10 +753,12 @@ export function OptionsAnalyzer() {
             premium,
             totalRevenue,
             gainPercent,
+            impliedVolatility,
+            delta,
           };
         }
         return null;
-      }).filter(Boolean) as Array<{ strikePrice: number; premium: number; totalRevenue: number; gainPercent: number }>;
+      }).filter(Boolean) as Array<{ strikePrice: number; premium: number; totalRevenue: number; gainPercent: number; impliedVolatility: number | null; delta: number | null }>;
 
       if (opportunities.length === 0) {
         const expDate = new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString();
@@ -594,13 +770,15 @@ export function OptionsAnalyzer() {
       opportunities.sort((a, b) => a.totalRevenue - b.totalRevenue);
       const chosen = opportunities[0];
 
-      // Update form fields: option_date (YYYY-MM-DD), strike, premium
+      // Update form fields: option_date (YYYY-MM-DD), strike, premium, IV, delta
       const optionDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       setFormData(prev => ({
         ...prev,
         option_date: optionDate,
         strike_price: chosen.strikePrice.toFixed(2),
         premium_per_contract: chosen.premium.toFixed(2),
+        implied_volatility: chosen.impliedVolatility ? (chosen.impliedVolatility * 100).toFixed(2) : '', // Convert to percentage
+        delta: chosen.delta ? chosen.delta.toFixed(4) : '', // Store Delta from E*TRADE
       }));
     } catch (err) {
       console.error('Error updating strategy:', err);
@@ -840,6 +1018,38 @@ export function OptionsAnalyzer() {
               />
             </div>
 
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Implied Volatility (%)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                name="implied_volatility"
+                value={formData.implied_volatility}
+                onChange={handleInputChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="25.00"
+                title="Enter as percentage (e.g., 25.00 for 25%)"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Delta
+              </label>
+              <input
+                type="number"
+                step="0.0001"
+                name="delta"
+                value={formData.delta}
+                onChange={handleInputChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="0.6500"
+                title="Option Delta (e.g., 0.6500 for 65% price sensitivity)"
+              />
+            </div>
+
             <div className="md:col-span-2 lg:col-span-3">
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Notes
@@ -917,12 +1127,16 @@ export function OptionsAnalyzer() {
 
       {/* Entries Table */}
       <div className="bg-white p-6 rounded-lg shadow">
-        <h2 className="text-xl font-semibold mb-4">
+        <h2 className="text-xl font-semibold mb-2">
           Manual Options Analysis ({sortedEntries.length} entries
           {hideZeroLots || symbolFilter ? ` of ${entries.length} total` : ''}
           {symbolFilter ? ` - filtered by "${symbolFilter}"` : ''}
           )
         </h2>
+        <p className="text-sm text-gray-600 mb-4">
+          <strong>Margin Analysis:</strong> Assumes entire cash needed is from margin at 13.20% annual rate. 
+          Margin interest is shown in red as it represents a cost.
+        </p>
         
         {entries.length > 0 ? (
           sortedEntries.length > 0 ? (
@@ -968,17 +1182,88 @@ export function OptionsAnalyzer() {
                   <th className={`${baseHeaderRowStyles} text-right text-xs font-medium text-gray-500 uppercase tracking-wider`}>
                     Strike Price
                   </th>
+                  <th 
+                    className={`${baseHeaderRowStyles} text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100`}
+                    onClick={() => handleSort('strike_price_delta')}
+                  >
+                    <div className="flex items-center justify-end space-x-1">
+                      <span>Strike Price Delta %</span>
+                      {sortColumn === 'strike_price_delta' && (
+                        <span className="text-blue-600">
+                          {sortDirection === 'asc' ? '↑' : '↓'}
+                        </span>
+                      )}
+                    </div>
+                  </th>
                   <th className={`${baseHeaderRowStyles} text-right text-xs font-medium text-gray-500 uppercase tracking-wider`}>
                     Premium / Contract
                   </th>
-                  <th className={`${baseHeaderRowStyles} text-right text-xs font-medium text-gray-500 uppercase tracking-wider`}>
-                    Cash Needed
+                  <th 
+                    className={`${baseHeaderRowStyles} text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100`}
+                    onClick={() => handleSort('cash_needed')}
+                  >
+                    <div className="flex items-center justify-end space-x-1">
+                      <span>Cash Needed</span>
+                      {sortColumn === 'cash_needed' && (
+                        <span className="text-blue-600">
+                          {sortDirection === 'asc' ? '↑' : '↓'}
+                        </span>
+                      )}
+                    </div>
+                  </th>
+                  <th 
+                    className={`${baseHeaderRowStyles} text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100`}
+                    onClick={() => handleSort('net_on_strike')}
+                  >
+                    <div className="flex items-center justify-end space-x-1">
+                      <span>Net on Strike</span>
+                      {sortColumn === 'net_on_strike' && (
+                        <span className="text-blue-600">
+                          {sortDirection === 'asc' ? '↑' : '↓'}
+                        </span>
+                      )}
+                    </div>
+                  </th>
+                  <th 
+                    className={`${baseHeaderRowStyles} text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100`}
+                    onClick={() => handleSort('percent_gain_on_strike')}
+                  >
+                    <div className="flex items-center justify-end space-x-1">
+                      <span>% Gain on Strike</span>
+                      {sortColumn === 'percent_gain_on_strike' && (
+                        <span className="text-blue-600">
+                          {sortDirection === 'asc' ? '↑' : '↓'}
+                        </span>
+                      )}
+                    </div>
                   </th>
                   <th className={`${baseHeaderRowStyles} text-right text-xs font-medium text-gray-500 uppercase tracking-wider`}>
-                    Net on Strike
+                    Margin Interest to Exp
                   </th>
                   <th className={`${baseHeaderRowStyles} text-right text-xs font-medium text-gray-500 uppercase tracking-wider`}>
-                    % Gain on Strike
+                    Margin / Day
+                  </th>
+                  <th className={`${baseHeaderRowStyles} text-right text-xs font-medium text-gray-500 uppercase tracking-wider`}>
+                    Margin / Week
+                  </th>
+                  <th className={`${baseHeaderRowStyles} text-right text-xs font-medium text-gray-500 uppercase tracking-wider`}>
+                    Margin / Month
+                  </th>
+                  <th 
+                    className={`${baseHeaderRowStyles} text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100`}
+                    onClick={() => handleSort('net_when_margined')}
+                  >
+                    <div className="flex items-center justify-end space-x-1">
+                      <span>Net When Margined %</span>
+                      {sortColumn === 'net_when_margined' && (
+                        <span className="text-blue-600">
+                          {sortDirection === 'asc' ? '↑' : '↓'}
+                        </span>
+                      )}
+                    </div>
+                  </th>
+                  <th className={`${baseHeaderRowStyles} text-right text-xs font-medium text-gray-500 uppercase tracking-wider`}>
+                    Strike Hit Probability
                   </th>
                   <th className={`${baseHeaderRowStyles} text-left text-xs font-medium text-gray-500 uppercase tracking-wider`}>
                     Next Earnings
@@ -999,6 +1284,13 @@ export function OptionsAnalyzer() {
                   const cashNeeded = calculateCashNeeded(entry.lots || null, entry.market_price || null, entry.premium_per_contract || null);
                   const netOnStrike = calculateNetOnStrike(entry.lots || null, entry.market_price || null, entry.strike_price || null, entry.premium_per_contract || null);
                   const percentGainOnStrike = calculatePercentGainOnStrike(entry.lots || null, entry.market_price || null, entry.strike_price || null, entry.premium_per_contract || null);
+                  
+                  // Margin analysis calculations
+                  const marginInterestToExp = calculateMarginInterestToExpiration(entry.lots || null, entry.market_price || null, entry.premium_per_contract || null, entry.option_date || null);
+                  const marginInterestPerDay = calculateMarginInterestPerDay(entry.lots || null, entry.market_price || null, entry.premium_per_contract || null);
+                  const marginInterestPerWeek = calculateMarginInterestPerWeek(entry.lots || null, entry.market_price || null, entry.premium_per_contract || null);
+                  const marginInterestPerMonth = calculateMarginInterestPerMonth(entry.lots || null, entry.market_price || null, entry.premium_per_contract || null);
+                  const netGainWhenMargined = calculateNetGainWhenMargined(entry.lots || null, entry.market_price || null, entry.strike_price || null, entry.premium_per_contract || null, entry.option_date || null);
 
                   return (
                     <tr key={entry.id} className="hover:bg-gray-50">
@@ -1016,11 +1308,19 @@ export function OptionsAnalyzer() {
                             onClick={() => updateStrategyForEntry(entry)}
                             disabled={updatingStrategyFor === entry.security}
                             className="text-purple-600 hover:text-purple-900 disabled:text-gray-400"
-                            title="Update strategy from E*TRADE"
+                            title={
+                              updatingStrategyFor === entry.security 
+                                ? "Updating strategy..." 
+                                : (entry.lots && entry.lots > 0)
+                                  ? "Clear strategy (set lots to 0)"
+                                  : "Set strategy (set lots to 1)"
+                            }
                           >
                             {updatingStrategyFor === entry.security ? 
                               <RefreshCw className="animate-spin" size={16} /> : 
-                              <Wand2 size={16} />
+                              (entry.lots && entry.lots > 0) 
+                                ? <RotateCcw size={16} />
+                                : <Wand2 size={16} />
                             }
                           </button>
                           <button
@@ -1068,6 +1368,19 @@ export function OptionsAnalyzer() {
                         {entry.lots && entry.strike_price ? `$${formatNumber(entry.strike_price)}` : '-'}
                       </td>
                       <td className={`${baseRowStyles} text-sm text-gray-900 text-right`}>
+                        {(() => {
+                          const deltaPercent = calculateStrikePriceDeltaPercent(entry.market_price || null, entry.strike_price || null);
+                          if (deltaPercent !== null) {
+                            return (
+                              <span className={deltaPercent >= 0 ? 'text-green-600' : 'text-red-600'}>
+                                {deltaPercent >= 0 ? '+' : ''}{formatNumber(deltaPercent)}%
+                              </span>
+                            );
+                          }
+                          return '-';
+                        })()}
+                      </td>
+                      <td className={`${baseRowStyles} text-sm text-gray-900 text-right`}>
                         {entry.lots && entry.premium_per_contract ? `$${formatNumber(entry.premium_per_contract)}` : '-'}
                       </td>
                       <td className={`${baseRowStyles} text-sm text-gray-900 text-right`}>
@@ -1086,6 +1399,70 @@ export function OptionsAnalyzer() {
                             {formatNumber(percentGainOnStrike)}%
                           </span>
                         ) : '-'}
+                      </td>
+                      <td className={`${baseRowStyles} text-sm text-gray-900 text-right`}>
+                        {marginInterestToExp !== null ? (
+                          <span className="text-red-600">
+                            ${formatNumber(marginInterestToExp)}
+                          </span>
+                        ) : '-'}
+                      </td>
+                      <td className={`${baseRowStyles} text-sm text-gray-900 text-right`}>
+                        {marginInterestPerDay !== null ? (
+                          <span className="text-red-600">
+                            ${formatNumber(marginInterestPerDay)}
+                          </span>
+                        ) : '-'}
+                      </td>
+                      <td className={`${baseRowStyles} text-sm text-gray-900 text-right`}>
+                        {marginInterestPerWeek !== null ? (
+                          <span className="text-red-600">
+                            ${formatNumber(marginInterestPerWeek)}
+                          </span>
+                        ) : '-'}
+                      </td>
+                      <td className={`${baseRowStyles} text-sm text-gray-900 text-right`}>
+                        {marginInterestPerMonth !== null ? (
+                          <span className="text-red-600">
+                            ${formatNumber(marginInterestPerMonth)}
+                          </span>
+                        ) : '-'}
+                      </td>
+                      <td className={`${baseRowStyles} text-sm text-gray-900 text-right`}>
+                        {netGainWhenMargined !== null ? (
+                          <span className={netGainWhenMargined >= 0 ? 'text-green-600' : 'text-red-600'}>
+                            {formatNumber(netGainWhenMargined)}%
+                          </span>
+                        ) : '-'}
+                      </td>
+                      <td className={`${baseRowStyles} text-sm text-gray-900 text-right`}>
+                        {(() => {
+                          const daysToExpiration = calculateDaysFromToday(entry.option_date || null);
+                          const probability = calculateStrikeProbability(
+                            entry.market_price || null,
+                            entry.strike_price || null,
+                            entry.implied_volatility || null,
+                            daysToExpiration,
+                            entry.delta || null,
+                            entry.next_earnings_date || null
+                          );
+                          if (probability !== null) {
+                            return (
+                              <span className={probability >= 50 ? 'text-red-600' : 'text-green-600'}>
+                                {formatNumber(probability)}%
+                              </span>
+                            );
+                          }
+                          return entry.implied_volatility ? (
+                            <span className="text-gray-400 text-xs">
+                              Missing data
+                            </span>
+                          ) : (
+                            <span className="text-gray-400 text-xs">
+                              No IV
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className={`${baseRowStyles} text-sm text-gray-900`}>
                         {formatDate(entry.next_earnings_date || null)}
@@ -1124,7 +1501,7 @@ export function OptionsAnalyzer() {
               </tbody>
               <tfoot className="bg-gray-50">
                 <tr>
-                  <td className={`${baseRowStyles} font-semibold text-gray-900`} colSpan={8}>
+                  <td className={`${baseRowStyles} font-semibold text-gray-900`} colSpan={9}>
                     Total
                   </td>
                   <td className={`${baseRowStyles} font-semibold text-gray-900 text-right`}>
@@ -1138,8 +1515,8 @@ export function OptionsAnalyzer() {
                       return totalCashNeeded > 0 ? `$${formatNumber(totalCashNeeded)}` : '-';
                     })()}
                   </td>
-                  <td className={`${baseRowStyles}`} colSpan={6}>
-                    {/* Empty cells for Net on Strike, % Gain on Strike, Company Name, Next Earnings, Ex-Dividend, and Notes columns */}
+                  <td className={`${baseRowStyles}`} colSpan={9}>
+                    {/* Empty cells for % Gain on Strike, Margin columns, Net When Margined, Strike Probability, Next Earnings, Ex-Dividend, and Notes columns */}
                   </td>
                 </tr>
               </tfoot>

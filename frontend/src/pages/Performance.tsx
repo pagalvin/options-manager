@@ -722,7 +722,7 @@ export function Performance() {
         date: new Date(t.transaction_date),
         type: t.transaction_type as 'Bought' | 'Sold',
         quantity: Math.abs(Number(t.quantity)),
-        amount: Number(t.amount),
+        amount: Number(t.amount), // Keep original sign: negative for buys, positive for sales
         price: Number(t.price)
       });
     });
@@ -737,29 +737,56 @@ export function Performance() {
 
     symbolTransactions.forEach((txs, symbol) => {
       const sortedTxs = txs.sort((a, b) => a.date.getTime() - b.date.getTime());
-      let holdings = 0;
-      let costBasis = 0;
+      
+      // Use FIFO to match buys and sells
+      const buyQueue: Array<{ quantity: number; costBasis: number; date: Date }> = [];
       
       sortedTxs.forEach(tx => {
         if (tx.type === 'Bought') {
-          holdings += tx.quantity;
-          costBasis += Math.abs(tx.amount); // Amount is negative for purchases
-        } else if (tx.type === 'Sold' && holdings > 0) {
-          const sharesSold = Math.min(tx.quantity, holdings);
-          const avgCostPerShare = costBasis / holdings;
-          const costOfSoldShares = sharesSold * avgCostPerShare;
-          const saleProceeds = tx.amount; // Amount is positive for sales
-          const gainLoss = saleProceeds - costOfSoldShares;
-          
-          completedTransactions.push({
-            symbol,
-            sellDate: tx.date,
-            gainLoss,
-            quantity: sharesSold
+          // Add to buy queue - amount is negative for purchases, so use absolute value for cost basis
+          buyQueue.push({
+            quantity: tx.quantity,
+            costBasis: Math.abs(tx.amount), // Total cost for this purchase
+            date: tx.date
           });
+        } else if (tx.type === 'Sold' && buyQueue.length > 0) {
+          let remainingToSell = tx.quantity;
+          let totalCostBasis = 0;
+          const saleProceeds = tx.amount; // Amount is positive for sales
           
-          holdings -= sharesSold;
-          costBasis -= costOfSoldShares;
+          // Match against oldest purchases first (FIFO)
+          while (remainingToSell > 0 && buyQueue.length > 0) {
+            const oldestBuy = buyQueue[0];
+            const sharesToMatch = Math.min(remainingToSell, oldestBuy.quantity);
+            
+            // Calculate proportional cost basis for the shares being sold
+            const avgCostPerShare = oldestBuy.costBasis / oldestBuy.quantity;
+            const costBasisForSale = sharesToMatch * avgCostPerShare;
+            totalCostBasis += costBasisForSale;
+            
+            // Update the buy queue
+            oldestBuy.quantity -= sharesToMatch;
+            oldestBuy.costBasis -= costBasisForSale;
+            
+            if (oldestBuy.quantity <= 0) {
+              buyQueue.shift(); // Remove completely matched buy
+            }
+            
+            remainingToSell -= sharesToMatch;
+          }
+          
+          if (totalCostBasis > 0) {
+            // Calculate proportional sale proceeds for matched shares
+            const proportionalSaleProceeds = (tx.quantity - remainingToSell) / tx.quantity * saleProceeds;
+            const gainLoss = proportionalSaleProceeds - totalCostBasis;
+            
+            completedTransactions.push({
+              symbol,
+              sellDate: tx.date,
+              gainLoss,
+              quantity: tx.quantity - remainingToSell
+            });
+          }
         }
       });
     });
@@ -905,6 +932,253 @@ export function Performance() {
 
   const weeklyCapitalFlowData = calculateCapitalFlowData('weekly');
   const monthlyCapitalFlowData = calculateCapitalFlowData('monthly');
+
+  // Calculate projected performance based on last 3 months
+  const calculateProjectedPerformance = () => {
+    const now = new Date();
+    const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+    
+    // Get historical data for the last 3 months
+    const historicalWeekly = weeklyGainData.filter(d => {
+      const weekDate = new Date(d.period + 'T00:00:00');
+      return weekDate >= threeMonthsAgo;
+    });
+    
+    const historicalMonthly = monthlyGainData.filter(d => {
+      const [year, month] = d.period.split('-');
+      const monthDate = new Date(parseInt(year), parseInt(month) - 1, 1);
+      return monthDate >= threeMonthsAgo;
+    });
+
+    // Linear regression function
+    const linearRegression = (data: Array<{x: number, y: number}>) => {
+      const n = data.length;
+      if (n === 0) return { slope: 0, intercept: 0, rSquared: 0 };
+      
+      const sumX = data.reduce((sum, point) => sum + point.x, 0);
+      const sumY = data.reduce((sum, point) => sum + point.y, 0);
+      const sumXY = data.reduce((sum, point) => sum + point.x * point.y, 0);
+      const sumXX = data.reduce((sum, point) => sum + point.x * point.x, 0);
+      
+      const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+      const intercept = (sumY - slope * sumX) / n;
+      
+      // Calculate R-squared
+      const meanY = sumY / n;
+      const totalSumSquares = data.reduce((sum, point) => sum + Math.pow(point.y - meanY, 2), 0);
+      const residualSumSquares = data.reduce((sum, point) => {
+        const predicted = slope * point.x + intercept;
+        return sum + Math.pow(point.y - predicted, 2);
+      }, 0);
+      const rSquared = totalSumSquares > 0 ? 1 - (residualSumSquares / totalSumSquares) : 0;
+      
+      return { slope, intercept, rSquared };
+    };
+
+    // Calculate standard deviation for confidence intervals
+    const calculateStdDev = (values: number[]) => {
+      if (values.length === 0) return 0;
+      const mean = values.reduce((sum, val) => sum + val, 0) / values.length;
+      const variance = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / values.length;
+      return Math.sqrt(variance);
+    };
+
+    // Prepare weekly projection data
+    const weeklyProjectionData = (() => {
+      if (historicalWeekly.length < 2) return [];
+      
+      const weeklyRegressionData = historicalWeekly.map((d, index) => ({
+        x: index,
+        premiumGain: d.netPremium,
+        equityGain: d.equityGainLoss
+      }));
+
+      const premiumRegression = linearRegression(weeklyRegressionData.map(d => ({ x: d.x, y: d.premiumGain })));
+      const equityRegression = linearRegression(weeklyRegressionData.map(d => ({ x: d.x, y: d.equityGain })));
+      
+      const premiumValues = weeklyRegressionData.map(d => d.premiumGain);
+      const equityValues = weeklyRegressionData.map(d => d.equityGain);
+      const premiumStdDev = calculateStdDev(premiumValues);
+      const equityStdDev = calculateStdDev(equityValues);
+      
+      // Generate 52 weeks of projections (12 months)
+      const projections = [];
+      const startIndex = historicalWeekly.length;
+      
+      for (let i = 0; i < 52; i++) {
+        const weekIndex = startIndex + i;
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() + (i * 7));
+        const weekStart = startOfWeekSunday(startDate);
+        const period = formatYyyyMmDd(weekStart);
+        
+        // Base predictions from linear regression
+        const basePremium = premiumRegression.slope * weekIndex + premiumRegression.intercept;
+        const baseEquity = equityRegression.slope * weekIndex + equityRegression.intercept;
+        
+        // Confidence intervals (25th percentile, median, 75th percentile)
+        const premiumLow = basePremium - (1.15 * premiumStdDev); // ~25th percentile
+        const premiumHigh = basePremium + (1.15 * premiumStdDev); // ~75th percentile
+        const equityLow = baseEquity - (1.15 * equityStdDev);
+        const equityHigh = baseEquity + (1.15 * equityStdDev);
+        
+        projections.push({
+          period,
+          premiumExpected: basePremium,
+          premiumLow,
+          premiumHigh,
+          equityExpected: baseEquity,
+          equityLow,
+          equityHigh,
+          combinedExpected: basePremium + baseEquity,
+          combinedLow: premiumLow + equityLow,
+          combinedHigh: premiumHigh + equityHigh
+        });
+      }
+      
+      // Calculate cumulative values
+      let cumulativePremium = 0;
+      let cumulativeEquity = 0;
+      let cumulativeCombined = 0;
+      let cumulativePremiumLow = 0;
+      let cumulativePremiumHigh = 0;
+      let cumulativeEquityLow = 0;
+      let cumulativeEquityHigh = 0;
+      let cumulativeCombinedLow = 0;
+      let cumulativeCombinedHigh = 0;
+      
+      const cumulativeProjections = projections.map(p => {
+        cumulativePremium += p.premiumExpected;
+        cumulativeEquity += p.equityExpected;
+        cumulativeCombined += p.combinedExpected;
+        cumulativePremiumLow += p.premiumLow;
+        cumulativePremiumHigh += p.premiumHigh;
+        cumulativeEquityLow += p.equityLow;
+        cumulativeEquityHigh += p.equityHigh;
+        cumulativeCombinedLow += p.combinedLow;
+        cumulativeCombinedHigh += p.combinedHigh;
+        
+        return {
+          ...p,
+          cumulativePremiumExpected: cumulativePremium,
+          cumulativeEquityExpected: cumulativeEquity,
+          cumulativeCombinedExpected: cumulativeCombined,
+          cumulativePremiumLow,
+          cumulativePremiumHigh,
+          cumulativeEquityLow,
+          cumulativeEquityHigh,
+          cumulativeCombinedLow,
+          cumulativeCombinedHigh
+        };
+      });
+      
+      return cumulativeProjections;
+    })();
+
+    // Prepare monthly projection data
+    const monthlyProjectionData = (() => {
+      if (historicalMonthly.length < 2) return [];
+      
+      const monthlyRegressionData = historicalMonthly.map((d, index) => ({
+        x: index,
+        premiumGain: d.netPremium,
+        equityGain: d.equityGainLoss
+      }));
+
+      const premiumRegression = linearRegression(monthlyRegressionData.map(d => ({ x: d.x, y: d.premiumGain })));
+      const equityRegression = linearRegression(monthlyRegressionData.map(d => ({ x: d.x, y: d.equityGain })));
+      
+      const premiumValues = monthlyRegressionData.map(d => d.premiumGain);
+      const equityValues = monthlyRegressionData.map(d => d.equityGain);
+      const premiumStdDev = calculateStdDev(premiumValues);
+      const equityStdDev = calculateStdDev(equityValues);
+      
+      // Generate 12 months of projections
+      const projections = [];
+      const startIndex = historicalMonthly.length;
+      
+      for (let i = 0; i < 12; i++) {
+        const monthIndex = startIndex + i;
+        const futureDate = new Date();
+        futureDate.setMonth(futureDate.getMonth() + i + 1);
+        const period = `${futureDate.getFullYear()}-${String(futureDate.getMonth() + 1).padStart(2, '0')}`;
+        const monthName = futureDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        
+        // Base predictions from linear regression
+        const basePremium = premiumRegression.slope * monthIndex + premiumRegression.intercept;
+        const baseEquity = equityRegression.slope * monthIndex + equityRegression.intercept;
+        
+        // Confidence intervals
+        const premiumLow = basePremium - (1.15 * premiumStdDev);
+        const premiumHigh = basePremium + (1.15 * premiumStdDev);
+        const equityLow = baseEquity - (1.15 * equityStdDev);
+        const equityHigh = baseEquity + (1.15 * equityStdDev);
+        
+        projections.push({
+          period,
+          monthName,
+          premiumExpected: basePremium,
+          premiumLow,
+          premiumHigh,
+          equityExpected: baseEquity,
+          equityLow,
+          equityHigh,
+          combinedExpected: basePremium + baseEquity,
+          combinedLow: premiumLow + equityLow,
+          combinedHigh: premiumHigh + equityHigh
+        });
+      }
+      
+      // Calculate cumulative values
+      let cumulativePremium = 0;
+      let cumulativeEquity = 0;
+      let cumulativeCombined = 0;
+      let cumulativePremiumLow = 0;
+      let cumulativePremiumHigh = 0;
+      let cumulativeEquityLow = 0;
+      let cumulativeEquityHigh = 0;
+      let cumulativeCombinedLow = 0;
+      let cumulativeCombinedHigh = 0;
+      
+      const cumulativeProjections = projections.map(p => {
+        cumulativePremium += p.premiumExpected;
+        cumulativeEquity += p.equityExpected;
+        cumulativeCombined += p.combinedExpected;
+        cumulativePremiumLow += p.premiumLow;
+        cumulativePremiumHigh += p.premiumHigh;
+        cumulativeEquityLow += p.equityLow;
+        cumulativeEquityHigh += p.equityHigh;
+        cumulativeCombinedLow += p.combinedLow;
+        cumulativeCombinedHigh += p.combinedHigh;
+        
+        return {
+          ...p,
+          cumulativePremiumExpected: cumulativePremium,
+          cumulativeEquityExpected: cumulativeEquity,
+          cumulativeCombinedExpected: cumulativeCombined,
+          cumulativePremiumLow,
+          cumulativePremiumHigh,
+          cumulativeEquityLow,
+          cumulativeEquityHigh,
+          cumulativeCombinedLow,
+          cumulativeCombinedHigh
+        };
+      });
+      
+      return cumulativeProjections;
+    })();
+
+    return {
+      weekly: weeklyProjectionData,
+      monthly: monthlyProjectionData,
+      historicalDataPoints: {
+        weekly: historicalWeekly.length,
+        monthly: historicalMonthly.length
+      }
+    };
+  };
+
+  const projectedPerformance = calculateProjectedPerformance();
 
   // Calculate summary metrics
   const totalPremiumCollected = monthlyData.reduce((sum, data) => sum + data.premiumCollected, 0);
@@ -1090,6 +1364,265 @@ export function Performance() {
             </BarChart>
           </ResponsiveContainer>
           <p className="mt-2 text-xs text-gray-500">Monthly combined performance showing net options premium and completed equity transactions.</p>
+        </div>
+      </div>
+
+      {/* Projected Performance Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Weekly Projected Performance Chart - 2/3 width */}
+        <div className="lg:col-span-2 bg-white p-6 rounded-lg shadow">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+            <h3 className="text-lg font-semibold">12-Month Weekly Projected Performance</h3>
+            <p className="text-xs text-gray-500 mt-1">Based on {projectedPerformance.historicalDataPoints.weekly} weeks of historical data (last 3 months)</p>
+          </div>
+          {projectedPerformance.weekly.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <AreaChart data={projectedPerformance.weekly}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis 
+                  dataKey="period" 
+                  tickFormatter={(v) => {
+                    const d = new Date(v + 'T00:00:00');
+                    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                  }} 
+                />
+                <YAxis />
+                <Tooltip content={({ active, label, payload }) => {
+                  if (!active || !payload || payload.length === 0) return null;
+                  const data = payload[0]?.payload;
+                  
+                  const start = new Date(String(label) + 'T00:00:00');
+                  const end = new Date(start);
+                  end.setDate(start.getDate() + 6);
+                  const dateLabel = `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+                  
+                  return (
+                    <div className="bg-white border border-gray-200 rounded p-3 shadow text-sm">
+                      <div className="font-medium text-gray-800 mb-1">
+                        {dateLabel}
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between gap-6">
+                          <span className="text-blue-600">Premium (Week):</span>
+                          <span className="font-semibold">${data?.premiumExpected?.toFixed(2) || '0.00'}</span>
+                        </div>
+                        <div className="flex justify-between gap-6">
+                          <span className="text-blue-600 font-bold">Premium (Cumulative):</span>
+                          <span className="font-bold">${data?.cumulativePremiumExpected?.toFixed(2) || '0.00'}</span>
+                        </div>
+                        <div className="flex justify-between gap-6">
+                          <span className="text-green-600">Equity (Week):</span>
+                          <span className="font-semibold">${data?.equityExpected?.toFixed(2) || '0.00'}</span>
+                        </div>
+                        <div className="flex justify-between gap-6">
+                          <span className="text-green-600 font-bold">Equity (Cumulative):</span>
+                          <span className="font-bold">${data?.cumulativeEquityExpected?.toFixed(2) || '0.00'}</span>
+                        </div>
+                        <div className="flex justify-between gap-6">
+                          <span className="text-purple-600">Combined (Week):</span>
+                          <span className="font-semibold">${data?.combinedExpected?.toFixed(2) || '0.00'}</span>
+                        </div>
+                        <div className="flex justify-between gap-6">
+                          <span className="text-purple-600 font-bold">Combined (Cumulative):</span>
+                          <span className="font-bold">${data?.cumulativeCombinedExpected?.toFixed(2) || '0.00'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }} />
+                <Legend />
+                
+                {/* Confidence bands */}
+                <Area 
+                  dataKey="cumulativePremiumHigh" 
+                  stackId="premium" 
+                  stroke="none" 
+                  fill="#3b82f6" 
+                  fillOpacity={0.1}
+                  name="Premium Confidence Band"
+                />
+                <Area 
+                  dataKey="cumulativePremiumLow" 
+                  stackId="premium" 
+                  stroke="none" 
+                  fill="#ffffff" 
+                  fillOpacity={1}
+                />
+                
+                <Area 
+                  dataKey="cumulativeEquityHigh" 
+                  stackId="equity" 
+                  stroke="none" 
+                  fill="#10b981" 
+                  fillOpacity={0.1}
+                  name="Equity Confidence Band"
+                />
+                <Area 
+                  dataKey="cumulativeEquityLow" 
+                  stackId="equity" 
+                  stroke="none" 
+                  fill="#ffffff" 
+                  fillOpacity={1}
+                />
+                
+                {/* Expected value lines */}
+                <Area 
+                  dataKey="cumulativePremiumExpected" 
+                  stroke="#3b82f6" 
+                  strokeWidth={2} 
+                  fill="none" 
+                  name="Cumulative Premium Expected"
+                />
+                <Area 
+                  dataKey="cumulativeEquityExpected" 
+                  stroke="#10b981" 
+                  strokeWidth={2} 
+                  fill="none" 
+                  name="Cumulative Equity Expected"
+                />
+                <Area 
+                  dataKey="cumulativeCombinedExpected" 
+                  stroke="#8b5cf6" 
+                  strokeWidth={3} 
+                  fill="none" 
+                  name="Cumulative Combined Expected"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-300 flex items-center justify-center text-gray-500">
+              <p>Insufficient historical data for weekly projections (need at least 2 weeks)</p>
+            </div>
+          )}
+          <p className="mt-2 text-xs text-gray-500">
+            Cumulative projections based on linear regression analysis of the last 3 months of activity. 
+            Shows running total expected performance over 12 months with confidence intervals.
+          </p>
+        </div>
+
+        {/* Monthly Projected Performance Chart - 1/3 width */}
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex flex-col gap-3 mb-4">
+            <h3 className="text-lg font-semibold">12-Month Monthly Projected Performance</h3>
+            <p className="text-xs text-gray-500 mt-1">Based on {projectedPerformance.historicalDataPoints.monthly} months of historical data</p>
+          </div>
+          {projectedPerformance.monthly.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <AreaChart data={projectedPerformance.monthly}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis 
+                  dataKey="monthName"
+                  angle={-45} 
+                  textAnchor="end" 
+                  height={80} 
+                  fontSize={12} 
+                />
+                <YAxis />
+                <Tooltip content={({ active, label, payload }) => {
+                  if (!active || !payload || payload.length === 0) return null;
+                  const data = payload[0]?.payload;
+                  
+                  return (
+                    <div className="bg-white border border-gray-200 rounded p-3 shadow text-sm">
+                      <div className="font-medium text-gray-800 mb-1">
+                        {String(label)}
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between gap-6">
+                          <span className="text-blue-600">Premium (Month):</span>
+                          <span className="font-semibold">${data?.premiumExpected?.toFixed(2) || '0.00'}</span>
+                        </div>
+                        <div className="flex justify-between gap-6">
+                          <span className="text-blue-600 font-bold">Premium (Cumulative):</span>
+                          <span className="font-bold">${data?.cumulativePremiumExpected?.toFixed(2) || '0.00'}</span>
+                        </div>
+                        <div className="flex justify-between gap-6">
+                          <span className="text-green-600">Equity (Month):</span>
+                          <span className="font-semibold">${data?.equityExpected?.toFixed(2) || '0.00'}</span>
+                        </div>
+                        <div className="flex justify-between gap-6">
+                          <span className="text-green-600 font-bold">Equity (Cumulative):</span>
+                          <span className="font-bold">${data?.cumulativeEquityExpected?.toFixed(2) || '0.00'}</span>
+                        </div>
+                        <div className="flex justify-between gap-6">
+                          <span className="text-purple-600">Combined (Month):</span>
+                          <span className="font-semibold">${data?.combinedExpected?.toFixed(2) || '0.00'}</span>
+                        </div>
+                        <div className="flex justify-between gap-6">
+                          <span className="text-purple-600 font-bold">Combined (Cumulative):</span>
+                          <span className="font-bold">${data?.cumulativeCombinedExpected?.toFixed(2) || '0.00'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }} />
+                <Legend />
+                
+                {/* Confidence bands */}
+                <Area 
+                  dataKey="cumulativePremiumHigh" 
+                  stackId="premium" 
+                  stroke="none" 
+                  fill="#3b82f6" 
+                  fillOpacity={0.1}
+                  name="Premium Confidence Band"
+                />
+                <Area 
+                  dataKey="cumulativePremiumLow" 
+                  stackId="premium" 
+                  stroke="none" 
+                  fill="#ffffff" 
+                  fillOpacity={1}
+                />
+                
+                <Area 
+                  dataKey="cumulativeEquityHigh" 
+                  stackId="equity" 
+                  stroke="none" 
+                  fill="#10b981" 
+                  fillOpacity={0.1}
+                  name="Equity Confidence Band"
+                />
+                <Area 
+                  dataKey="cumulativeEquityLow" 
+                  stackId="equity" 
+                  stroke="none" 
+                  fill="#ffffff" 
+                  fillOpacity={1}
+                />
+                
+                {/* Expected value lines */}
+                <Area 
+                  dataKey="cumulativePremiumExpected" 
+                  stroke="#3b82f6" 
+                  strokeWidth={2} 
+                  fill="none" 
+                  name="Cumulative Premium Expected"
+                />
+                <Area 
+                  dataKey="cumulativeEquityExpected" 
+                  stroke="#10b981" 
+                  strokeWidth={2} 
+                  fill="none" 
+                  name="Cumulative Equity Expected"
+                />
+                <Area 
+                  dataKey="cumulativeCombinedExpected" 
+                  stroke="#8b5cf6" 
+                  strokeWidth={3} 
+                  fill="none" 
+                  name="Cumulative Combined Expected"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-300 flex items-center justify-center text-gray-500">
+              <p>Insufficient historical data for monthly projections (need at least 2 months)</p>
+            </div>
+          )}
+          <p className="mt-2 text-xs text-gray-500">
+            Cumulative monthly projections showing running total expected performance over 12 months with confidence bands.
+          </p>
         </div>
       </div>
 

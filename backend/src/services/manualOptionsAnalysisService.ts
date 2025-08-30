@@ -8,6 +8,8 @@ export interface ManualOptionsAnalysis {
   option_date?: string | null;
   strike_price?: number | null;
   premium_per_contract?: number | null;
+  implied_volatility?: number | null;
+  delta?: number | null;
   notes?: string | null;
   next_earnings_date?: string | null;
   company_name?: string | null;
@@ -48,9 +50,9 @@ export class ManualOptionsAnalysisService {
   async createEntry(entry: Omit<ManualOptionsAnalysis, 'id' | 'created_at' | 'updated_at'>): Promise<ManualOptionsAnalysis> {
     const query = `
       INSERT INTO overlord.manual_options_analysis (
-        security, market_price, lots, option_date, strike_price, premium_per_contract, notes,
+        security, market_price, lots, option_date, strike_price, premium_per_contract, implied_volatility, delta, notes,
         next_earnings_date, company_name, ex_dividend_date
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *
     `;
     
@@ -61,6 +63,8 @@ export class ManualOptionsAnalysisService {
       entry.option_date,
       entry.strike_price,
       entry.premium_per_contract,
+      entry.implied_volatility,
+      entry.delta,
       entry.notes,
       entry.next_earnings_date,
       entry.company_name,
@@ -98,6 +102,14 @@ export class ManualOptionsAnalysisService {
     if (entry.premium_per_contract !== undefined) {
       fields.push(`premium_per_contract = $${paramCount++}`);
       values.push(entry.premium_per_contract);
+    }
+    if (entry.implied_volatility !== undefined) {
+      fields.push(`implied_volatility = $${paramCount++}`);
+      values.push(entry.implied_volatility);
+    }
+    if (entry.delta !== undefined) {
+      fields.push(`delta = $${paramCount++}`);
+      values.push(entry.delta);
     }
     if (entry.notes !== undefined) {
       fields.push(`notes = $${paramCount++}`);

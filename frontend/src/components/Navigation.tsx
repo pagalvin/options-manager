@@ -12,6 +12,7 @@ const navigation = [
   { name: 'Positions', href: '/positions' },
   { name: 'Options', href: '/options' },
   { name: 'Performance', href: '/performance' },
+  { name: 'Margin Analysis', href: '/margin-analysis' },
   { name: 'Options Analyzer', href: '/analyzer' },
   { name: 'AI Chat', href: '/chat' },
   { name: 'E*TRADE', href: '/etrade' },
