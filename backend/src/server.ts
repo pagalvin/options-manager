@@ -18,6 +18,7 @@ import chainAdminRoutes from './routes/chainAdmin';
 import chatRoutes from './routes/chat';
 import marginRoutes from './routes/margin';
 import premiumCashFlowRoutes from './routes/premiumCashFlow';
+import noteRoutes from './routes/notes';
 
 // Load environment variables
 dotenv.config();
@@ -49,6 +50,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/margin', marginRoutes);
 app.use('/api/premium-cash-flow', premiumCashFlowRoutes);
 app.use('/api/price', stockPriceRoutes);
+app.use('/api/notes', noteRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req: express.Request, res: express.Response) => {
