@@ -18,7 +18,6 @@ import chainAdminRoutes from './routes/chainAdmin';
 import chatRoutes from './routes/chat';
 import marginRoutes from './routes/margin';
 import premiumCashFlowRoutes from './routes/premiumCashFlow';
-import notesRoutes from './routes/notes';
 
 // Load environment variables
 dotenv.config();
@@ -49,7 +48,6 @@ app.use('/api/chain-admin', chainAdminRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/margin', marginRoutes);
 app.use('/api/premium-cash-flow', premiumCashFlowRoutes);
-app.use('/api/notes', notesRoutes);
 app.use('/api/price', stockPriceRoutes);
 
 // Health check endpoint
