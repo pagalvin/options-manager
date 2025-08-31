@@ -3,7 +3,7 @@ import { getLastThreeMonthsNames, getMonday, getNextSunday } from "@/helpers/dat
 import transactionsService, { Transaction } from "@/services/transactionsService";
 import { useState, useEffect } from "react";
 import { calculateOpenOptions } from "@/lib/utils";
-import { AlertTriangle, AlertCircle } from 'lucide-react';
+import { AlertTriangle, AlertCircle, BarChart3, TrendingUp, PieChart, Target } from 'lucide-react';
 
 
 interface OptionAnalysis {
@@ -38,6 +38,7 @@ export function Options() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [hideZeroLots, setHideZeroLots] = useState(true);
+    const [activeTab, setActiveTab] = useState<'grid' | 'charts'>('grid');
     const [sortConfig, setSortConfig] = useState<{
         key: keyof OptionAnalysis;
         direction: "asc" | "desc";
@@ -532,37 +533,501 @@ export function Options() {
     const annualizationFactor = 365 / daysElapsed;
     const totalAnnualizedMaxRoi = rawMaxRoi > -1 ? (Math.pow(1 + rawMaxRoi, annualizationFactor) - 1) * 100 : 0; // percentage
 
-    return (
-        <div className="space-y-6">
-            <h1 className="text-3xl font-bold">Options Positions</h1>
+    // Charts data preparation
+    const getTopPerformers = () => {
+        return optionAnalysis
+            .filter(a => !hideZeroLots || a.totalLots > 0)
+            .sort((a, b) => b.netPremiumAllTime - a.netPremiumAllTime)
+            .slice(0, 10);
+    };
 
-            <div className="bg-white p-6 rounded-lg shadow">
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-semibold">
-                        Options Analysis - All Symbols ({optionAnalysis.length} symbols)
-                    </h2>
-                    <div className="flex items-center space-x-4">
-                        <span className="text-sm text-gray-600 whitespace-nowrap">
-                            Annualized Max ROI: {isFinite(totalAnnualizedMaxRoi) ? formatNumber(totalAnnualizedMaxRoi) : "N/A"}%
-                        </span>
-                        <div className="flex items-center space-x-2">
-                            <input
-                                type="checkbox"
-                                id="hideZeroLots"
-                                checked={hideZeroLots}
-                                onChange={(e) => setHideZeroLots(e.target.checked)}
-                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                            />
-                            <label htmlFor="hideZeroLots" className="text-sm text-gray-700">
-                                Hide positions with 0 lots
-                            </label>
+    const getExposureBreakdown = () => {
+        return optionAnalysis
+            .filter(a => !hideZeroLots || a.totalLots > 0)
+            .filter(a => a.currentExposure > 0)
+            .sort((a, b) => b.currentExposure - a.currentExposure);
+    };
+
+    const getROIDistribution = () => {
+        return optionAnalysis
+            .filter(a => !hideZeroLots || a.totalLots > 0)
+            .filter(a => isFinite(a.maxAnnualizedROI) && a.maxAnnualizedROI !== 0)
+            .filter(a => a.maxAnnualizedROI <= 200) // Exclude positions with ROI over 200%
+            .sort((a, b) => b.maxAnnualizedROI - a.maxAnnualizedROI);
+    };
+
+    const renderChartsTab = () => {
+        const topPerformers = getTopPerformers();
+        const exposureBreakdown = getExposureBreakdown();
+        const roiDistribution = getROIDistribution();
+
+        // Helper function to generate pie chart colors
+        const generateColors = (count: number) => {
+            const colors = [
+                '#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6',
+                '#06B6D4', '#EC4899', '#84CC16', '#F97316', '#6366F1',
+                '#14B8A6', '#F43F5E', '#22C55E', '#A855F7', '#0EA5E9'
+            ];
+            return Array.from({ length: count }, (_, i) => colors[i % colors.length]);
+        };
+
+        // Helper function to create pie chart
+        const createPieChart = (data: Array<{label: string, value: number, color: string}>, title: string) => {
+            const total = data.reduce((sum, item) => sum + item.value, 0);
+            let currentAngle = 0;
+            
+            return (
+                <div className="flex flex-col items-center">
+                    <h4 className="text-sm font-medium mb-4 text-center">{title}</h4>
+                    <div className="relative w-[28rem] h-80">
+                        <svg viewBox="0 0 320 320" className="w-full h-full">
+                            {/* Pie slices */}
+                            {data.map((item, index) => {
+                                const percentage = (item.value / total) * 100;
+                                const angle = (percentage / 100) * 360;
+                                const startAngle = currentAngle;
+                                const endAngle = currentAngle + angle;
+                                const midAngle = (startAngle + endAngle) / 2;
+                                
+                                // Pie slice coordinates (inner radius 0, outer radius 80)
+                                const x1 = 160 + 80 * Math.cos((startAngle * Math.PI) / 180);
+                                const y1 = 160 + 80 * Math.sin((startAngle * Math.PI) / 180);
+                                const x2 = 160 + 80 * Math.cos((endAngle * Math.PI) / 180);
+                                const y2 = 160 + 80 * Math.sin((endAngle * Math.PI) / 180);
+                                const largeArc = angle > 180 ? 1 : 0;
+                                
+                                // Callout line coordinates
+                                const innerX = 160 + 90 * Math.cos((midAngle * Math.PI) / 180);
+                                const innerY = 160 + 90 * Math.sin((midAngle * Math.PI) / 180);
+                                const outerX = 160 + 120 * Math.cos((midAngle * Math.PI) / 180);
+                                const outerY = 160 + 120 * Math.sin((midAngle * Math.PI) / 180);
+                                
+                                // Label position and alignment
+                                const labelX = 160 + 140 * Math.cos((midAngle * Math.PI) / 180);
+                                const labelY = 160 + 140 * Math.sin((midAngle * Math.PI) / 180);
+                                const isRightSide = Math.cos((midAngle * Math.PI) / 180) > 0;
+                                
+                                const path = `M 160 160 L ${x1} ${y1} A 80 80 0 ${largeArc} 1 ${x2} ${y2} Z`;
+                                currentAngle += angle;
+                                
+                                // Format value based on chart type
+                                const formattedValue = title.includes('Monthly') ? `$${formatNumber(item.value)}` : 
+                                                     title.includes('ROI') ? `${formatNumber(item.value, 1)}%` : 
+                                                     title.includes('Exposure') ? `$${formatNumber(item.value)}` : 
+                                                     `$${formatNumber(item.value)}`;
+                                
+                                return (
+                                    <g key={index}>
+                                        {/* Pie slice */}
+                                        <path
+                                            d={path}
+                                            fill={item.color}
+                                            stroke="white"
+                                            strokeWidth="2"
+                                            className="hover:opacity-80 cursor-pointer transition-opacity duration-200"
+                                        >
+                                            {/* Tooltip */}
+                                            <title>
+                                                {item.label}: {formattedValue} ({percentage.toFixed(1)}%)
+                                            </title>
+                                        </path>
+                                        
+                                        {/* Only show callouts for slices >= 5% to avoid clutter */}
+                                        {percentage >= 5 && (
+                                            <>
+                                                {/* Callout line */}
+                                                <line
+                                                    x1={innerX}
+                                                    y1={innerY}
+                                                    x2={outerX}
+                                                    y2={outerY}
+                                                    stroke="#666"
+                                                    strokeWidth="1.5"
+                                                />
+                                                
+                                                {/* Label background */}
+                                                <rect
+                                                    x={isRightSide ? labelX : labelX - 80}
+                                                    y={labelY - 12}
+                                                    width="80"
+                                                    height="24"
+                                                    fill="white"
+                                                    stroke="#ddd"
+                                                    strokeWidth="1"
+                                                    rx="3"
+                                                />
+                                                
+                                                {/* Symbol label */}
+                                                <text
+                                                    x={isRightSide ? labelX + 4 : labelX - 76}
+                                                    y={labelY - 2}
+                                                    fontSize="11"
+                                                    fontWeight="bold"
+                                                    fill="#333"
+                                                    textAnchor="start"
+                                                >
+                                                    {item.label}
+                                                </text>
+                                                
+                                                {/* Value label */}
+                                                <text
+                                                    x={isRightSide ? labelX + 4 : labelX - 76}
+                                                    y={labelY + 9}
+                                                    fontSize="10"
+                                                    fill="#666"
+                                                    textAnchor="start"
+                                                >
+                                                    {formattedValue}
+                                                </text>
+                                            </>
+                                        )}
+                                    </g>
+                                );
+                            })}
+                        </svg>
+                    </div>
+                </div>
+            );
+        };
+
+        return (
+            <div className="space-y-8">
+                {/* Net Premium Performance Chart */}
+                <div className="bg-white p-6 rounded-lg shadow">
+                    <h3 className="text-lg font-semibold mb-4 flex items-center">
+                        <BarChart3 className="mr-2 text-blue-600" size={20} />
+                        Top 10 Net Premium Performers
+                    </h3>
+                    <div className="grid grid-cols-2 gap-6">
+                        {/* Bar Chart */}
+                        <div className="space-y-3">
+                            {topPerformers.map((analysis, index) => {
+                                const maxWidth = Math.max(...topPerformers.map(a => Math.abs(a.netPremiumAllTime)));
+                                const width = Math.abs(analysis.netPremiumAllTime) / maxWidth * 100;
+                                const isPositive = analysis.netPremiumAllTime >= 0;
+                                
+                                return (
+                                    <div key={analysis.symbol} className="flex items-center space-x-3">
+                                        <span className="text-sm font-medium w-12 text-right">#{index + 1}</span>
+                                        <span className="text-sm font-medium w-16">{analysis.symbol}</span>
+                                        <div className="flex-1 bg-gray-200 rounded-full h-6 relative">
+                                            <div 
+                                                className={`h-6 rounded-full ${isPositive ? 'bg-green-500' : 'bg-red-500'}`}
+                                                style={{ width: `${width}%` }}
+                                            />
+                                            <span className="absolute inset-0 flex items-center justify-center text-xs font-medium text-white">
+                                                ${formatNumber(analysis.netPremiumAllTime)}
+                                            </span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        
+                        {/* Pie Chart */}
+                        <div className="flex justify-center">
+                            {createPieChart(
+                                topPerformers.slice(0, 10).map((analysis, index) => ({
+                                    label: analysis.symbol,
+                                    value: Math.abs(analysis.netPremiumAllTime),
+                                    color: generateColors(10)[index]
+                                })),
+                                "Premium Distribution"
+                            )}
                         </div>
                     </div>
                 </div>
 
-                {optionAnalysis.length > 0 ? (
-                    <div className="overflow-x-auto">
-                        <table className="min-w-max divide-y divide-gray-200" style={{ minWidth: "2000px" }}>
+                {/* Current Exposure Breakdown */}
+                <div className="bg-white p-6 rounded-lg shadow">
+                    <h3 className="text-lg font-semibold mb-4 flex items-center">
+                        <PieChart className="mr-2 text-purple-600" size={20} />
+                        Current Exposure Distribution
+                    </h3>
+                    <div className="grid grid-cols-2 gap-6">
+                        {/* Bar Chart */}
+                        <div className="space-y-3">
+                            {exposureBreakdown.slice(0, 15).map((analysis) => {
+                                const totalExposure = exposureBreakdown.reduce((sum, a) => sum + a.currentExposure, 0);
+                                const percentage = totalExposure > 0 ? (analysis.currentExposure / totalExposure) * 100 : 0;
+                                
+                                return (
+                                    <div key={analysis.symbol} className="flex items-center space-x-3">
+                                        <span className="text-sm font-medium w-16">{analysis.symbol}</span>
+                                        <div className="flex-1 bg-gray-200 rounded-full h-5 relative">
+                                            <div 
+                                                className="h-5 rounded-full bg-blue-500"
+                                                style={{ width: `${percentage}%` }}
+                                            />
+                                            <span className="absolute inset-0 flex items-center justify-center text-xs font-medium text-white">
+                                                {formatNumber(percentage, 1)}%
+                                            </span>
+                                        </div>
+                                        <span className="text-sm text-gray-600 w-24 text-right">
+                                            ${formatNumber(analysis.currentExposure)}
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        
+                        {/* Pie Chart */}
+                        <div className="flex justify-center">
+                            {createPieChart(
+                                exposureBreakdown.slice(0, 15).map((analysis, index) => ({
+                                    label: analysis.symbol,
+                                    value: analysis.currentExposure,
+                                    color: generateColors(15)[index]
+                                })),
+                                "Exposure Distribution"
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* ROI Performance Distribution */}
+                <div className="bg-white p-6 rounded-lg shadow">
+                    <h3 className="text-lg font-semibold mb-4 flex items-center">
+                        <Target className="mr-2 text-green-600" size={20} />
+                        Annualized ROI Distribution (≤200%)
+                    </h3>
+                    <div className="grid grid-cols-2 gap-6">
+                        {/* Bar Chart */}
+                        <div className="space-y-3">
+                            {roiDistribution.slice(0, 15).map((analysis) => {
+                                const maxROI = Math.max(...roiDistribution.map(a => Math.abs(a.maxAnnualizedROI)));
+                                const width = Math.abs(analysis.maxAnnualizedROI) / maxROI * 100;
+                                const isPositive = analysis.maxAnnualizedROI >= 0;
+                                
+                                return (
+                                    <div key={analysis.symbol} className="flex items-center space-x-3">
+                                        <span className="text-sm font-medium w-16">{analysis.symbol}</span>
+                                        <div className="flex-1 bg-gray-200 rounded-full h-5 relative">
+                                            <div 
+                                                className={`h-5 rounded-full ${isPositive ? 'bg-green-500' : 'bg-red-500'}`}
+                                                style={{ width: `${width}%` }}
+                                            />
+                                            <span className="absolute inset-0 flex items-center justify-center text-xs font-medium text-white">
+                                                {formatNumber(analysis.maxAnnualizedROI, 1)}%
+                                            </span>
+                                        </div>
+                                        <span className="text-sm text-gray-600 w-16 text-right">
+                                            {analysis.totalLots} lots
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        
+                        {/* Pie Chart */}
+                        <div className="flex justify-center">
+                            {createPieChart(
+                                roiDistribution.slice(0, 15).map((analysis, index) => ({
+                                    label: analysis.symbol,
+                                    value: Math.abs(analysis.maxAnnualizedROI),
+                                    color: generateColors(15)[index]
+                                })),
+                                "ROI Distribution"
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Monthly Performance Trend */}
+                <div className="bg-white p-6 rounded-lg shadow">
+                    <h3 className="text-lg font-semibold mb-4 flex items-center">
+                        <TrendingUp className="mr-2 text-orange-600" size={20} />
+                        Monthly Premium Trend (Last 3 Months)
+                    </h3>
+                    <div className="grid grid-cols-2 gap-6">
+                        {/* Monthly Statistics */}
+                        <div className="space-y-4">
+                            {/* Monthly totals */}
+                            <div className="grid grid-cols-3 gap-2">
+                                <div className="text-center p-3 bg-blue-50 rounded-lg">
+                                    <div className="text-lg font-semibold text-blue-600">
+                                        ${formatNumber(optionAnalysis
+                                            .filter(a => !hideZeroLots || a.totalLots > 0)
+                                            .reduce((sum, a) => sum + a.netPremiumTwoMonthsAgo, 0))}
+                                    </div>
+                                    <div className="text-xs text-gray-600">{getLastThreeMonthsNames().twoMonthsAgo}</div>
+                                </div>
+                                <div className="text-center p-3 bg-green-50 rounded-lg">
+                                    <div className="text-lg font-semibold text-green-600">
+                                        ${formatNumber(optionAnalysis
+                                            .filter(a => !hideZeroLots || a.totalLots > 0)
+                                            .reduce((sum, a) => sum + a.netPremiumLastMonth, 0))}
+                                    </div>
+                                    <div className="text-xs text-gray-600">{getLastThreeMonthsNames().lastMonth}</div>
+                                </div>
+                                <div className="text-center p-3 bg-purple-50 rounded-lg">
+                                    <div className="text-lg font-semibold text-purple-600">
+                                        ${formatNumber(optionAnalysis
+                                            .filter(a => !hideZeroLots || a.totalLots > 0)
+                                            .reduce((sum, a) => sum + a.netPremiumCurrentMonth, 0))}
+                                    </div>
+                                    <div className="text-xs text-gray-600">{getLastThreeMonthsNames().currentMonth}</div>
+                                </div>
+                            </div>
+
+                            {/* Top monthly performers */}
+                            <div className="mt-4">
+                                <h4 className="text-sm font-medium mb-2">Top Current Month Performers</h4>
+                                <div className="space-y-1">
+                                    {optionAnalysis
+                                        .filter(a => !hideZeroLots || a.totalLots > 0)
+                                        .filter(a => a.netPremiumCurrentMonth > 0)
+                                        .sort((a, b) => b.netPremiumCurrentMonth - a.netPremiumCurrentMonth)
+                                        .slice(0, 6)
+                                        .map((analysis) => (
+                                            <div key={analysis.symbol} className="flex justify-between items-center p-1 bg-gray-50 rounded text-sm">
+                                                <span className="font-medium">{analysis.symbol}</span>
+                                                <span className="text-green-600 font-medium">
+                                                    ${formatNumber(analysis.netPremiumCurrentMonth)}
+                                                </span>
+                                            </div>
+                                        ))}
+                                </div>
+                            </div>
+                        </div>
+                        
+                        {/* Monthly Pie Chart */}
+                        <div className="flex justify-center">
+                            {(() => {
+                                const monthlyData = [
+                                    {
+                                        label: getLastThreeMonthsNames().twoMonthsAgo,
+                                        value: optionAnalysis
+                                            .filter(a => !hideZeroLots || a.totalLots > 0)
+                                            .reduce((sum, a) => sum + Math.abs(a.netPremiumTwoMonthsAgo), 0),
+                                        color: '#3B82F6'
+                                    },
+                                    {
+                                        label: getLastThreeMonthsNames().lastMonth,
+                                        value: optionAnalysis
+                                            .filter(a => !hideZeroLots || a.totalLots > 0)
+                                            .reduce((sum, a) => sum + Math.abs(a.netPremiumLastMonth), 0),
+                                        color: '#10B981'
+                                    },
+                                    {
+                                        label: getLastThreeMonthsNames().currentMonth,
+                                        value: optionAnalysis
+                                            .filter(a => !hideZeroLots || a.totalLots > 0)
+                                            .reduce((sum, a) => sum + Math.abs(a.netPremiumCurrentMonth), 0),
+                                        color: '#8B5CF6'
+                                    }
+                                ].filter(item => item.value > 0);
+                                
+                                return createPieChart(monthlyData, "Monthly Premium Distribution");
+                            })()}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Portfolio Summary Stats */}
+                <div className="bg-white p-6 rounded-lg shadow">
+                    <h3 className="text-lg font-semibold mb-4">Portfolio Summary Statistics</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="text-center p-4 bg-blue-50 rounded-lg">
+                            <div className="text-2xl font-bold text-blue-600">
+                                {optionAnalysis.filter(a => !hideZeroLots || a.totalLots > 0).length}
+                            </div>
+                            <div className="text-sm text-gray-600">Active Positions</div>
+                        </div>
+                        <div className="text-center p-4 bg-green-50 rounded-lg">
+                            <div className="text-2xl font-bold text-green-600">
+                                ${formatNumber(totalExposure)}
+                            </div>
+                            <div className="text-sm text-gray-600">Total Exposure</div>
+                        </div>
+                        <div className="text-center p-4 bg-purple-50 rounded-lg">
+                            <div className="text-2xl font-bold text-purple-600">
+                                {formatNumber(totalAnnualizedMaxRoi, 1)}%
+                            </div>
+                            <div className="text-sm text-gray-600">Portfolio ROI</div>
+                        </div>
+                        <div className="text-center p-4 bg-orange-50 rounded-lg">
+                            <div className="text-2xl font-bold text-orange-600">
+                                {formatNumber(optionAnalysis
+                                    .filter(a => !hideZeroLots || a.totalLots > 0)
+                                    .reduce((sum, a) => sum + a.totalLots, 0), 0)}
+                            </div>
+                            <div className="text-sm text-gray-600">Total Lots</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    return (
+        <div className="space-y-6 w-100%">
+            <h1 className="text-3xl font-bold">Options Positions</h1>
+
+            {/* Tab Navigation */}
+            <div className="border-b border-gray-200">
+                <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+                    <button
+                        onClick={() => setActiveTab('grid')}
+                        className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                            activeTab === 'grid'
+                                ? 'border-blue-500 text-blue-600'
+                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                        }`}
+                    >
+                        Options Grid
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('charts')}
+                        className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                            activeTab === 'charts'
+                                ? 'border-blue-500 text-blue-600'
+                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                        }`}
+                    >
+                        Analytics & Charts
+                    </button>
+                </nav>
+            </div>
+
+            {loading && (
+                <div className="text-center py-8">Loading options analysis...</div>
+            )}
+
+            {error && (
+                <div className="bg-red-100 text-red-700 p-3 rounded">{error}</div>
+            )}
+
+            {!loading && !error && (
+                <>
+                    {activeTab === 'grid' && (
+                        <div className="bg-white p-6 rounded-lg shadow">
+                            <div className="flex justify-between items-center mb-4">
+                                <h2 className="text-xl font-semibold">
+                                    Options Analysis - All Symbols ({optionAnalysis.length} symbols)
+                                </h2>
+                                <div className="flex items-center space-x-4">
+                                    <span className="text-sm text-gray-600 whitespace-nowrap">
+                                        Annualized Max ROI: {isFinite(totalAnnualizedMaxRoi) ? formatNumber(totalAnnualizedMaxRoi) : "N/A"}%
+                                    </span>
+                                    <div className="flex items-center space-x-2">
+                                        <input
+                                            type="checkbox"
+                                            id="hideZeroLots"
+                                            checked={hideZeroLots}
+                                            onChange={(e) => setHideZeroLots(e.target.checked)}
+                                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                        />
+                                        <label htmlFor="hideZeroLots" className="text-sm text-gray-700">
+                                            Hide positions with 0 lots
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {optionAnalysis.length > 0 ? (
+                                <div className="overflow-x-auto">
+                                    <table className="min-w-max divide-y divide-gray-200" style={{ minWidth: "2000px" }}>
                             <thead className="bg-gray-50">
                                 <tr>
                                     <th
@@ -1144,7 +1609,12 @@ export function Options() {
                 ) : (
                     <p className="text-gray-500">No option transactions found.</p>
                 )}
-            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'charts' && renderChartsTab()}
+                </>
+            )}
         </div>
     );
 }

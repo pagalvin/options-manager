@@ -13,6 +13,10 @@ Never put passwords, API keys, or other sensitive information in the codebase. U
 
 Always use PowerShell for command-line instructions.
 
+# Postgres
+
+Use the .env file to understand database settings including user id to log into Postgres
+
 # ReactJS Development Instructions
 
 Instructions for building high-quality ReactJS applications with modern patterns, hooks, and best practices following the official React documentation at https://react.dev.

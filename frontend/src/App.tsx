@@ -15,6 +15,7 @@ import { SymbolDetail } from './pages/SymbolDetail';
 import { ChartView } from './pages/ChartView';
 import { ChatPage } from './pages/ChatPage';
 import { MarginAnalysisPage } from './pages/MarginAnalysis';
+import PremiumCashFlow from './pages/PremiumCashFlow';
 
 function App() {
   // Timer to fetch AAPL price every hour to keep E*TRADE API session active
@@ -89,6 +90,7 @@ function App() {
             <Route path="/chart/:symbol" element={<ChartView />} />
             <Route path="/options" element={<Options />} />
             <Route path="/performance" element={<Performance />} />
+            <Route path="/premium-cash-flow" element={<PremiumCashFlow />} />
             <Route path="/margin-analysis" element={<MarginAnalysisPage />} />
             <Route path="/analyzer" element={<OptionsAnalyzer />} />
             <Route path="/chat" element={<ChatPage />} />

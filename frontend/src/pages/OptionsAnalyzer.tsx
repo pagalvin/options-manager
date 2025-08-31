@@ -255,6 +255,20 @@ export function OptionsAnalyzer() {
     return dailyInterest ? dailyInterest * 30 : null;
   };
 
+  // Helper functions to clamp values to database-safe ranges
+  const clampImpliedVolatility = (iv: number | null): number | null => {
+    if (!iv || isNaN(iv)) return null;
+    // E*TRADE already provides IV as percentage, so don't multiply by 100
+    // Just clamp to database safe range: 0.1% to 99.99% (to fit DECIMAL(8,6))
+    return Math.max(0.1, Math.min(99.99, iv));
+  };
+
+  const clampDelta = (delta: number | null): number | null => {
+    if (!delta || isNaN(delta)) return null;
+    // Clamp delta to reasonable range: -1 to +1
+    return Math.max(-1, Math.min(1, delta));
+  };
+
   // Calculate net percent gain when accounting for margin interest costs
   const calculateNetGainWhenMargined = (lots: number | null, marketPrice: number | null, strikePrice: number | null, premium: number | null, optionDate: string | null): number | null => {
     if (!lots || !marketPrice || !strikePrice || !premium || !optionDate) return null;
@@ -603,8 +617,9 @@ export function OptionsAnalyzer() {
         if (!c.bid || c.bid <= 0) return null;
         const strikePrice = c.strikePrice as number;
         const premium = c.bid as number;
-        const impliedVolatility = c.impliedVolatility || c.iv || null; // Get IV from E*TRADE
-        const delta = c.delta || null; // Get Delta from E*TRADE
+        // Get IV and Delta from OptionGreeks object in E*TRADE response
+        const impliedVolatility = c.OptionGreeks?.iv || c.impliedVolatility || c.iv || null;
+        const delta = c.OptionGreeks?.delta || c.delta || null;
         const totalRevenue = strikePrice + premium;
         const gainPercent = ((totalRevenue - currentPrice) / currentPrice) * 100;
         if (gainPercent >= 1) {
@@ -639,8 +654,8 @@ export function OptionsAnalyzer() {
         strike_price: chosen.strikePrice,
         premium_per_contract: chosen.premium,
         next_earnings_date: nextEarningsDate,
-        implied_volatility: chosen.impliedVolatility ? Number((chosen.impliedVolatility * 100).toFixed(2)) : null, // Convert to percentage
-        delta: chosen.delta ? Number(chosen.delta.toFixed(4)) : null, // Store Delta from E*TRADE
+        implied_volatility: chosen.impliedVolatility ? Number(clampImpliedVolatility(chosen.impliedVolatility)?.toFixed(2)) : null, // Convert to percentage and clamp
+        delta: chosen.delta ? Number(clampDelta(chosen.delta)?.toFixed(4)) : null, // Clamp and store Delta from E*TRADE
         lots: (entry.lots && entry.lots > 0) ? 0 : 1 // Toggle: set to 1 if zero, set to 0 if > 0
       };
 
@@ -743,8 +758,9 @@ export function OptionsAnalyzer() {
         if (!c.bid || c.bid <= 0) return null;
         const strikePrice = c.strikePrice as number;
         const premium = c.bid as number;
-        const impliedVolatility = c.impliedVolatility || c.iv || null; // Get IV from E*TRADE
-        const delta = c.delta || null; // Get Delta from E*TRADE
+        // Get IV and Delta from OptionGreeks object in E*TRADE response
+        const impliedVolatility = c.OptionGreeks?.iv || c.impliedVolatility || c.iv || null;
+        const delta = c.OptionGreeks?.delta || c.delta || null;
         const totalRevenue = strikePrice + premium;
         const gainPercent = ((totalRevenue - currentPrice) / currentPrice) * 100;
         if (gainPercent >= 1) {
@@ -777,8 +793,8 @@ export function OptionsAnalyzer() {
         option_date: optionDate,
         strike_price: chosen.strikePrice.toFixed(2),
         premium_per_contract: chosen.premium.toFixed(2),
-        implied_volatility: chosen.impliedVolatility ? (chosen.impliedVolatility * 100).toFixed(2) : '', // Convert to percentage
-        delta: chosen.delta ? chosen.delta.toFixed(4) : '', // Store Delta from E*TRADE
+        implied_volatility: chosen.impliedVolatility ? clampImpliedVolatility(chosen.impliedVolatility)?.toFixed(2) || '' : '', // Convert to percentage and clamp
+        delta: chosen.delta ? clampDelta(chosen.delta)?.toFixed(4) || '' : '', // Clamp and store Delta from E*TRADE
       }));
     } catch (err) {
       console.error('Error updating strategy:', err);
