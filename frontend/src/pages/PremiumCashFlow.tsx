@@ -245,14 +245,14 @@ const PremiumCashFlow: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
-                        {roll.rollType.replace('_', ' ')}
+                        {roll.rollType?.replace('_', ' ')}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600">
-                      {formatCurrency(roll.buyTransaction.amount)}
+                      {formatCurrency(roll?.buyTransaction?.amount)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600">
-                      {formatCurrency(roll.sellTransaction.amount)}
+                      {formatCurrency(roll?.sellTransaction?.amount)}
                     </td>
                   </tr>
                 ))}
