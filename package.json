@@ -17,8 +17,18 @@
   "devDependencies": {
     "concurrently": "^8.2.2"
   },
-  "keywords": ["options", "trading", "roi", "finance", "etrade"],
+  "keywords": [
+    "options",
+    "trading",
+    "roi",
+    "finance",
+    "etrade"
+  ],
   "author": "",
   "license": "UNLICENSED",
-  "private": true
+  "private": true,
+  "dependencies": {
+    "easymde": "^2.20.0",
+    "react-simplemde-editor": "^5.2.0"
+  }
 }
