@@ -18,6 +18,9 @@ Database:
 - Use the .env file to determine database details (it's in Postgres)
 
 UI:
+- General:
+    - Follow the UI standards in place. Mainly, use ShadCN components, TypeScript/React and Tailwind CSS.
+    
 - Menu
     - Add the notes feature to the global navigation
     

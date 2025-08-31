@@ -17,6 +17,7 @@ const navigation = [
   { name: 'Options Analyzer', href: '/analyzer' },
   { name: 'AI Chat', href: '/chat' },
   { name: 'E*TRADE', href: '/etrade' },
+  { name: 'Notes', href: '/notes' },
   { name: 'Admin', href: '/admin' },
 ];
 

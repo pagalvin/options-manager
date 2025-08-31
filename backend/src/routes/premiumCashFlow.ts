@@ -4,10 +4,10 @@ import { PremiumCashFlowService } from '../services/premiumCashFlowService';
 const router = express.Router();
 const premiumCashFlowService = new PremiumCashFlowService();
 
-// Get all option roll transactions and standalone premium
+// Get all option roll transactions
 router.get('/rolls', async (req, res) => {
   try {
-    const rolls = await premiumCashFlowService.getAllUnhinderedPremium();
+    const rolls = await premiumCashFlowService.getSimpleOptionRolls();
     res.json(rolls);
   } catch (error) {
     console.error('Error fetching option rolls:', error);
@@ -18,7 +18,7 @@ router.get('/rolls', async (req, res) => {
 // Get premium cash flow summary by week and month
 router.get('/summary', async (req, res) => {
   try {
-    const summary = await premiumCashFlowService.getSummary();
+    const summary = await premiumCashFlowService.getPremiumCashFlowSummary();
     res.json(summary);
   } catch (error) {
     console.error('Error fetching premium cash flow summary:', error);

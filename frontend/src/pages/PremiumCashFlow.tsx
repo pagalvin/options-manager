@@ -25,23 +25,9 @@ interface PremiumCashFlowSummary {
   symbols: string[];
 }
 
-interface PremiumCashFlowSummaryResponse {
-  summaries: PremiumCashFlowSummary[];
-  totalCredits: number;
-  totalTransactions: number;
-  uniqueSymbols: string[];
-}
-
 const PremiumCashFlow: React.FC = () => {
   const [rolls, setRolls] = useState<PremiumCashFlowEntry[]>([]);
   const [summary, setSummary] = useState<PremiumCashFlowSummary[]>([]);
-
-  // Calculate average netCredit per month (must be after summary is defined)
-  const monthlySummaries = summary.filter(item => item.month);
-  const averageNetCreditPerMonth =
-    monthlySummaries.length > 0
-      ? monthlySummaries.reduce((sum, item) => sum + (Number(item.totalNetCredit) || 0), 0) / monthlySummaries.length
-      : 0;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewType, setViewType] = useState<'weekly' | 'monthly'>('monthly');
@@ -63,10 +49,10 @@ const PremiumCashFlow: React.FC = () => {
       }
 
       const rollsData = await rollsResponse.json();
-      const summaryData: PremiumCashFlowSummaryResponse = await summaryResponse.json();
+      const summaryData = await summaryResponse.json();
 
       setRolls(rollsData);
-      setSummary(summaryData.summaries);
+      setSummary(summaryData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -90,14 +76,14 @@ const PremiumCashFlow: React.FC = () => {
     .filter(item => viewType === 'weekly' ? item.week : item.month)
     .map(item => ({
       period: viewType === 'weekly' ? item.week : item.month,
-      totalNetCredit: Number(item.totalNetCredit) || 0,
-      transactionCount: Number(item.transactionCount) || 0,
-      symbolCount: item.symbols?.length || 0
+      totalNetCredit: item.totalNetCredit,
+      transactionCount: item.transactionCount,
+      symbolCount: item.symbols.length
     }))
     .reverse(); // Show oldest to newest
 
   // Calculate totals
-  const totalNetCredit = rolls.reduce((sum, roll) => sum + (Number(roll.netCredit) || 0), 0);
+  const totalNetCredit = rolls.reduce((sum, roll) => sum + roll.netCredit, 0);
   const averagePerRoll = rolls.length > 0 ? totalNetCredit / rolls.length : 0;
   const uniqueSymbols = [...new Set(rolls.map(roll => roll.symbol))];
 
@@ -130,22 +116,15 @@ const PremiumCashFlow: React.FC = () => {
         <h1 className="text-2xl font-bold text-gray-900 mb-4">
           Premium Cash Flow Analysis
         </h1>
-        <p className="text-gray-600 mb-2">
+        <p className="text-gray-600 mb-6">
           Track "unhindered" premium cash flow from option rolls, excluding initial covered call transactions.
-        </p>
-        <p className="text-sm text-gray-500 mb-6">
-          Data filtered from March 1st, 2025 onwards
         </p>
 
         {/* Summary Statistics */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-green-50 border border-green-200 rounded-lg p-4">
             <h3 className="text-sm font-medium text-green-800">Total Net Credit</h3>
             <p className="text-2xl font-bold text-green-900">{formatCurrency(totalNetCredit)}</p>
-          </div>
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-yellow-800">Avg Net Credit / Month</h3>
-            <p className="text-2xl font-bold text-yellow-900">{formatCurrency(averageNetCreditPerMonth)}</p>
           </div>
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <h3 className="text-sm font-medium text-blue-800">Total Rolls</h3>
@@ -262,18 +241,18 @@ const PremiumCashFlow: React.FC = () => {
                       {roll.symbol}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-semibold">
-                      {formatCurrency(Number(roll.netCredit) || 0)}
+                      {formatCurrency(roll.netCredit)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
-                        {roll.rollType ? roll.rollType.replace('_', ' ') : 'roll'}
+                        {roll.rollType.replace('_', ' ')}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600">
-                      {formatCurrency(Number(roll.buyTransaction?.amount) || 0)}
+                      {formatCurrency(roll.buyTransaction.amount)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600">
-                      {formatCurrency(Number(roll.sellTransaction?.amount) || 0)}
+                      {formatCurrency(roll.sellTransaction.amount)}
                     </td>
                   </tr>
                 ))}

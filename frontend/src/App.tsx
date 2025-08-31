@@ -16,6 +16,7 @@ import { ChartView } from './pages/ChartView';
 import { ChatPage } from './pages/ChatPage';
 import { MarginAnalysisPage } from './pages/MarginAnalysis';
 import PremiumCashFlow from './pages/PremiumCashFlow';
+import { Notes } from './pages/Notes';
 
 function App() {
   // Timer to fetch AAPL price every hour to keep E*TRADE API session active
@@ -97,6 +98,7 @@ function App() {
             <Route path="/chat/covered-call-report/:symbol" element={<ChatPage />} />
             <Route path="/etrade" element={<ETradePage />} />
             <Route path="/admin" element={<Admin />} />
+            <Route path="/notes" element={<Notes />} />
           </Routes>
         </main>
       </div>
