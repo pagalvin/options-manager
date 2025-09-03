@@ -1,0 +1,46 @@
+# Margin Opportunity Planner
+
+## Overview
+
+This is a tool to help me plan for future margin usage based on anticipated option assignments. As a rule, I try to roll options out for a net credit. However, it eventually becomes impossible to do that profitably. Consequently, the money is tied up until assignment. The purpose of this function is to identify future cash flow based on option assignments. This will help me decide to make new purchases on margin.
+
+## Flow
+
+I will manually enter Equities with options. For each option, I will provide:
+- Symbol
+- Strike Date
+- Strike Price
+- Total options on that date (usually one)
+- An indicator, "Rollable". If true, it means I think I can roll this option and it will not be assigned. Otherwise, I don't think I can roll this option and it will be assigned on the strike date.
+
+## Database
+
+Use the .env file to find database details.
+
+Create new database tables to support the needed data structures.
+
+That includes:
+- existing options: based on the data above
+- margin master:
+-- current outstanding margin
+-- current margin rate (default to 10.2)
+- margin plan:
+-- Week of
+-- Proposed Margin
+-- Notes
+
+
+## User Interface
+
+Provide a CRUD function for the Options
+
+Provide a CRUD function for the margin master
+
+Provide a grid view that shows the following columns:
+- Week Ending
+- Likely Assignments: sum of all options that are marked as rollable where strike date is week ending
+- Proposed Margin: Data entry field
+- Margin cost: Total cost of the margin for one week at the proposed margin amount
+- Notes: Free form text area
+
+

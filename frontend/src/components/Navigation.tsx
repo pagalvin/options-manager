@@ -14,6 +14,7 @@ const navigation = [
   { name: 'Performance', href: '/performance' },
   { name: 'Premium Cash Flow', href: '/premium-cash-flow' },
   { name: 'Margin Analysis', href: '/margin-analysis' },
+  { name: 'Margin Opportunity', href: '/margin-opportunity-planner' },
   { name: 'Options Analyzer', href: '/analyzer' },
   { name: 'AI Chat', href: '/chat' },
   { name: 'E*TRADE', href: '/etrade' },
