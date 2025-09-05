@@ -125,6 +125,18 @@ router.delete('/plans/:id', async (req, res) => {
   }
 });
 
+// Delete margin plan by week ending date
+router.delete('/plans/by-week/:weekEnding', async (req, res) => {
+  try {
+    const weekEnding = decodeURIComponent(req.params.weekEnding);
+    await marginOpportunityPlannerService.deleteMarginPlanByWeekEnding(weekEnding);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting margin plan by week ending:', error);
+    res.status(500).json({ error: 'Failed to delete margin plan' });
+  }
+});
+
 // Planning Grid route
 router.get('/planning-grid', async (req, res) => {
   try {

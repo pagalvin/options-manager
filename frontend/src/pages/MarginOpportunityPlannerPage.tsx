@@ -178,6 +178,27 @@ const MarginOpportunityPlannerPage: React.FC = () => {
     }
   };
 
+  const handleDeletePlanningRow = async (weekEnding: string) => {
+    if (!confirm(`Are you sure you want to delete the planning row for week ending ${new Date(weekEnding).toLocaleDateString()}?`)) return;
+
+    try {
+      const response = await fetch(`/api/margin-opportunity-planner/plans/by-week/${encodeURIComponent(weekEnding)}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) throw new Error('Failed to delete planning row');
+
+      await fetchPlanningGrid();
+      
+      // Clear any edits for this row
+      const newEdits = { ...planningGridEdits };
+      delete newEdits[weekEnding];
+      setPlanningGridEdits(newEdits);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete planning row');
+    }
+  };
+
   const resetOptionForm = () => {
     setOptionForm({
       symbol: '',
@@ -486,44 +507,125 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {options.map((option) => (
-                    <tr key={option.id} className="hover:bg-gray-50 transition-colors duration-150">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{option.symbol}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {new Date(option.strike_date).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">${option.strike_price}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{option.total_contracts}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                        ${(option.strike_price * option.total_contracts * 100).toLocaleString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                          option.rollable 
-                            ? 'bg-green-100 text-green-800' 
-                            : 'bg-red-100 text-red-800'
-                        }`}>
-                          {option.rollable ? 'Yes' : 'No'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => startEditOption(option)}
-                            className="text-blue-600 hover:text-blue-900"
-                          >
-                            <Edit2 className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteOption(option.id)}
-                            className="text-red-600 hover:text-red-900"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {(() => {
+                    // Group options by date
+                    const groupedOptions = options.reduce((groups, option) => {
+                      const dateKey = option.strike_date.split('T')[0]; // Get date part only
+                      if (!groups[dateKey]) {
+                        groups[dateKey] = [];
+                      }
+                      groups[dateKey].push(option);
+                      return groups;
+                    }, {} as Record<string, typeof options>);
+
+                    const rows: JSX.Element[] = [];
+                    let grandTotalContracts = 0;
+                    let grandTotalValue = 0;
+
+                    // Sort dates chronologically
+                    const sortedDates = Object.keys(groupedOptions).sort();
+
+                    sortedDates.forEach((dateKey) => {
+                      const dateOptions = groupedOptions[dateKey];
+                      const dateTotalContracts = dateOptions.reduce((sum, opt) => sum + opt.total_contracts, 0);
+                      const dateTotalValue = dateOptions.reduce((sum, opt) => sum + (opt.strike_price * opt.total_contracts * 100), 0);
+
+                      grandTotalContracts += dateTotalContracts;
+                      grandTotalValue += dateTotalValue;
+
+                      // Add date header row
+                      rows.push(
+                        <tr key={`date-${dateKey}`} className="bg-gray-100">
+                          <td colSpan={7} className="px-6 py-3 text-sm font-semibold text-gray-900">
+                            {new Date(dateKey).toLocaleDateString('en-US', { 
+                              weekday: 'long', 
+                              year: 'numeric', 
+                              month: 'long', 
+                              day: 'numeric' 
+                            })}
+                          </td>
+                        </tr>
+                      );
+
+                      // Add options for this date
+                      dateOptions.forEach((option) => {
+                        rows.push(
+                          <tr key={option.id} className="hover:bg-gray-50 transition-colors duration-150">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{option.symbol}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {new Date(option.strike_date).toLocaleDateString()}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">${option.strike_price}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{option.total_contracts}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                              ${(option.strike_price * option.total_contracts * 100).toLocaleString()}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                                option.rollable 
+                                  ? 'bg-green-100 text-green-800' 
+                                  : 'bg-red-100 text-red-800'
+                              }`}>
+                                {option.rollable ? 'Yes' : 'No'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                              <div className="flex space-x-2">
+                                <button
+                                  onClick={() => startEditOption(option)}
+                                  className="text-blue-600 hover:text-blue-900"
+                                >
+                                  <Edit2 className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteOption(option.id)}
+                                  className="text-red-600 hover:text-red-900"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      });
+
+                      // Add subtotal row for this date
+                      rows.push(
+                        <tr key={`subtotal-${dateKey}`} className="bg-blue-50 border-t-2 border-blue-200">
+                          <td colSpan={3} className="px-6 py-3 text-sm font-semibold text-blue-900 text-right">
+                            Subtotal for {new Date(dateKey).toLocaleDateString()}:
+                          </td>
+                          <td className="px-6 py-3 whitespace-nowrap text-sm font-semibold text-blue-900 text-right">
+                            {dateTotalContracts}
+                          </td>
+                          <td className="px-6 py-3 whitespace-nowrap text-sm font-semibold text-blue-900 text-right">
+                            ${dateTotalValue.toLocaleString()}
+                          </td>
+                          <td colSpan={2}></td>
+                        </tr>
+                      );
+                    });
+
+                    // Add grand total row
+                    if (sortedDates.length > 1) {
+                      rows.push(
+                        <tr key="grand-total" className="bg-gray-200 border-t-4 border-gray-400">
+                          <td colSpan={3} className="px-6 py-4 text-sm font-bold text-gray-900 text-right">
+                            GRAND TOTAL:
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900 text-right">
+                            {grandTotalContracts}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900 text-right">
+                            ${grandTotalValue.toLocaleString()}
+                          </td>
+                          <td colSpan={2}></td>
+                        </tr>
+                      );
+                    }
+
+                    return rows;
+                  })()}
                 </tbody>
               </table>
               {options.length === 0 && (
@@ -554,70 +656,104 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Likely Assignments</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Proposed Margin</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Margin Impact</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cumulative Margin Impact</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Weekly Margin Cost</th>
                   <th className="px-6 py-3 text-left text-xs w-80 font-medium text-gray-500 uppercase tracking-wider">Notes</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {planningGrid.map((row) => {
-                  const hasEdits = planningGridEdits[row.week_ending];
-                  const displayProposedMargin = hasEdits?.proposed_margin ?? row.proposed_margin ?? '';
-                  const displayNotes = hasEdits?.notes ?? row.notes ?? '';
-
-                  return (
-                    <tr key={row.week_ending} className="hover:bg-gray-50 transition-colors duration-150">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {new Date(row.week_ending).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">
-                          {row.symbols_not_rollable || '-'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                        ${Number(row.likely_assignments || 0).toLocaleString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={displayProposedMargin}
-                          onChange={(e) => updatePlanningGridEdit(row.week_ending, 'proposed_margin', e.target.value)}
-                          className="w-full border-gray-300 rounded-md shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500 text-right"
-                          placeholder="0.00"
-                        />
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                        <span className={`font-medium ${Number(row.margin_impact) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          ${Number(row.margin_impact).toLocaleString()}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                        {row.margin_cost_weekly ? `$${Number(row.margin_cost_weekly).toFixed(2)}` : '-'}
-                      </td>
-                      <td className="px-6 py-4 min-w-0">
-                        <textarea
-                          value={displayNotes}
-                          onChange={(e) => updatePlanningGridEdit(row.week_ending, 'notes', e.target.value)}
-                          rows={displayNotes.split('\n').length}
-                          className="w-full border-gray-300 rounded-md shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500 resize-none"
-                          placeholder="Add notes..."
-                        />
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {hasEdits && (
-                          <button
-                            onClick={() => handleSavePlanningRow(row.week_ending)}
-                            className="text-blue-600 hover:text-blue-900"
-                          >
-                            <Save className="h-4 w-4" />
-                          </button>
-                        )}
-                      </td>
-                    </tr>
+                {(() => {
+                  // Sort planning grid by week ending date
+                  const sortedGrid = [...planningGrid].sort((a, b) => 
+                    new Date(a.week_ending).getTime() - new Date(b.week_ending).getTime()
                   );
-                })}
+                  
+                  // Start with current outstanding margin as the base
+                  let cumulativeImpact = marginMaster?.current_outstanding_margin || 0;
+                  
+                  return sortedGrid.map((row) => {
+                    const hasEdits = planningGridEdits[row.week_ending];
+                    const displayProposedMargin = hasEdits?.proposed_margin ?? row.proposed_margin ?? '';
+                    const displayNotes = hasEdits?.notes ?? row.notes ?? '';
+                    
+                    // Calculate cumulative margin impact for this week:
+                    // current outstanding margin - likely assignments + proposed margin + cumulative from last week
+                    const currentAssignments = Number(row.likely_assignments) || 0;
+                    const currentProposedMargin = Number(displayProposedMargin) || 0;
+                    
+                    // Show cumulative impact AFTER this week's changes
+                    cumulativeImpact = cumulativeImpact - currentAssignments + currentProposedMargin;
+
+                    return (
+                      <tr key={row.week_ending} className="hover:bg-gray-50 transition-colors duration-150">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {new Date(row.week_ending).toLocaleDateString()}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">
+                            {row.symbols_not_rollable || '-'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                          ${Number(row.likely_assignments || 0).toLocaleString()}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={displayProposedMargin}
+                            onChange={(e) => updatePlanningGridEdit(row.week_ending, 'proposed_margin', e.target.value)}
+                            className="w-full border-gray-300 rounded-md shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500 text-right"
+                            placeholder="0.00"
+                          />
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                          <span className={`font-medium ${Number(row.margin_impact) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            ${Number(row.margin_impact).toLocaleString()}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                          <span className={`font-medium ${cumulativeImpact >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            ${cumulativeImpact.toLocaleString()}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                          {row.margin_cost_weekly ? `$${Number(row.margin_cost_weekly).toFixed(2)}` : '-'}
+                        </td>
+                        <td className="px-6 py-4 min-w-0">
+                          <textarea
+                            value={displayNotes}
+                            onChange={(e) => updatePlanningGridEdit(row.week_ending, 'notes', e.target.value)}
+                            rows={displayNotes.split('\n').length}
+                            className="w-full border-gray-300 rounded-md shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500 resize-none"
+                            placeholder="Add notes..."
+                          />
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex space-x-2">
+                            {hasEdits && (
+                              <button
+                                onClick={() => handleSavePlanningRow(row.week_ending)}
+                                className="text-blue-600 hover:text-blue-900"
+                                title="Save changes"
+                              >
+                                <Save className="h-4 w-4" />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDeletePlanningRow(row.week_ending)}
+                              className="text-red-600 hover:text-red-900"
+                              title="Delete this planning row"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  });
+                })()}
               </tbody>
             </table>
             {planningGrid.length === 0 && (

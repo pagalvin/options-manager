@@ -143,6 +143,13 @@ export class MarginOpportunityPlannerService {
     );
   }
 
+  async deleteMarginPlanByWeekEnding(weekEnding: string): Promise<void> {
+    await this.pool.query(
+      'DELETE FROM overlord.margin_plan WHERE week_ending = $1',
+      [weekEnding]
+    );
+  }
+
   // Planning Grid View
   async getPlanningGrid(): Promise<MarginPlanningGridRow[]> {
     const result = await this.pool.query(`
