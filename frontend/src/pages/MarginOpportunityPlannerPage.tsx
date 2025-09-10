@@ -34,7 +34,8 @@ const MarginOpportunityPlannerPage: React.FC = () => {
     rollable: false
   });
 
-  const [planningGridEdits, setPlanningGridEdits] = useState<{[key: string]: {proposed_margin?: number, notes?: string}}>({});
+  // Change the type of planningGridEdits to store proposed_margin as string
+  const [planningGridEdits, setPlanningGridEdits] = useState<{[key: string]: {proposed_margin?: string, notes?: string}}>({});
 
   useEffect(() => {
     fetchData();
@@ -155,13 +156,18 @@ const MarginOpportunityPlannerPage: React.FC = () => {
     const edits = planningGridEdits[weekEnding];
     if (!edits) return;
 
+    // Find the current row data to preserve existing values
+    const currentRow = planningGrid.find(row => row.week_ending === weekEnding);
+    if (!currentRow) return;
+
     try {
       const response = await fetch('/api/margin-opportunity-planner/plans', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           week_ending: weekEnding,
-          ...edits
+          proposed_margin: Number(edits.proposed_margin) || 0,  // Parse to number here
+          notes: edits.notes !== undefined ? edits.notes : currentRow.notes
         })
       });
 
@@ -223,12 +229,13 @@ const MarginOpportunityPlannerPage: React.FC = () => {
     setShowOptionForm(true);
   };
 
+  // Update updatePlanningGridEdit to store proposed_margin as string without Number conversion
   const updatePlanningGridEdit = (weekEnding: string, field: 'proposed_margin' | 'notes', value: number | string) => {
     setPlanningGridEdits(prev => ({
       ...prev,
       [weekEnding]: {
         ...prev[weekEnding],
-        [field]: field === 'proposed_margin' ? Number(value) : value
+        [field]: field === 'proposed_margin' ? value : value  // Keep as string for proposed_margin
       }
     }));
   };
@@ -266,17 +273,8 @@ const MarginOpportunityPlannerPage: React.FC = () => {
     );
   }
 
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          <Target className="h-8 w-8 text-blue-600" />
-          <h1 className="text-2xl font-bold text-gray-900">Margin Opportunity Planner</h1>
-        </div>
-      </div>
-
-      {/* Tab Navigation */}
+  const getTabMarkup = () => {
+    return (
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex space-x-8">
           {[
@@ -298,11 +296,24 @@ const MarginOpportunityPlannerPage: React.FC = () => {
             </button>
           ))}
         </nav>
-      </div>
+      </div>        
+    )
+  }
 
-      {/* Tab Content */}
-      {activeTab === 'master' && (
-        <div className="bg-white shadow rounded-lg p-6">
+  const getHeaderMarkup = () => {
+    return (
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-2">
+          <Target className="h-8 w-8 text-blue-600" />
+          <h1 className="text-2xl font-bold text-gray-900">Margin Opportunity Planner</h1>
+        </div>
+      </div>
+    )
+  }
+
+  const getMasterMarkup = () => {
+    return (
+                <div className="bg-white shadow rounded-lg p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-medium text-gray-900">Margin Master Settings</h2>
             {!editingMaster ? (
@@ -355,12 +366,13 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                   className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
-              <div className="md:col-span-2">
+              
+              <div className="md:col-span-5">
                 <label className="block text-sm font-medium text-gray-700">Notes</label>
                 <textarea
                   value={masterForm.notes}
                   onChange={(e) => setMasterForm(prev => ({ ...prev, notes: e.target.value }))}
-                  rows={3}
+                  rows={masterForm.notes ? masterForm.notes.split('\n').length : 1}
                   className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
@@ -390,9 +402,12 @@ const MarginOpportunityPlannerPage: React.FC = () => {
             </div>
           )}
         </div>
-      )}
 
-      {activeTab === 'options' && (
+    )
+  }
+
+  const getOptionsMarkup = () => {
+    return (
         <div className="space-y-6">
           {/* Add/Edit Option Form */}
           {showOptionForm && (
@@ -529,6 +544,8 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                       const dateOptions = groupedOptions[dateKey];
                       const dateTotalContracts = dateOptions.reduce((sum, opt) => sum + opt.total_contracts, 0);
                       const dateTotalValue = dateOptions.reduce((sum, opt) => sum + (opt.strike_price * opt.total_contracts * 100), 0);
+                      // margin cost is calculated as 11.9% of the total value where 11.9% is for a full year
+                      const marginCost = 7 * ((dateTotalValue * 0.119) / 365); // Assuming 11.9% margin cost
 
                       grandTotalContracts += dateTotalContracts;
                       grandTotalValue += dateTotalValue;
@@ -636,9 +653,12 @@ const MarginOpportunityPlannerPage: React.FC = () => {
             </div>
           </div>
         </div>
-      )}
 
-      {activeTab === 'planning' && (
+    )
+  }
+
+  const getPlanningMarkup = () => {
+    return (
         <div className="bg-white shadow rounded-lg">
           <div className="px-6 py-4 border-b border-gray-200">
             <h2 className="text-lg font-medium text-gray-900">Planning Grid</h2>
@@ -651,15 +671,15 @@ const MarginOpportunityPlannerPage: React.FC = () => {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Week Ending</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbols (Non-Rollable)</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Likely Assignments</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Proposed Margin</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Margin Impact</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cumulative Margin Impact</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Weekly Margin Cost</th>
-                  <th className="px-6 py-3 text-left text-xs w-80 font-medium text-gray-500 uppercase tracking-wider">Notes</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Week Ending</th>
+                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbols (Non-Rollable)</th>
+                  <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Likely Assignments</th>
+                  <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Proposed Margin</th>
+                  <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Margin Impact</th>
+                  <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cumulative Margin Impact</th>
+                  <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Weekly Margin Cost</th>
+                  <th className="px-2 py-3 text-left text-xs w-96 font-medium text-gray-500 uppercase tracking-wider">Notes</th>
+                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -671,34 +691,52 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                   
                   // Start with current outstanding margin as the base
                   let cumulativeImpact = marginMaster?.current_outstanding_margin || 0;
-                  
+                  let cumulativeImpact2: number = marginMaster?.current_outstanding_margin || 0;
+
                   return sortedGrid.map((row) => {
                     const hasEdits = planningGridEdits[row.week_ending];
-                    const displayProposedMargin = hasEdits?.proposed_margin ?? row.proposed_margin ?? '';
+                    const displayProposedMargin = String(hasEdits?.proposed_margin ?? row.proposed_margin ?? '');  // Ensure string
                     const displayNotes = hasEdits?.notes ?? row.notes ?? '';
                     
                     // Calculate cumulative margin impact for this week:
                     // current outstanding margin - likely assignments + proposed margin + cumulative from last week
                     const currentAssignments = Number(row.likely_assignments) || 0;
                     const currentProposedMargin = Number(displayProposedMargin) || 0;
-                    
-                    // Show cumulative impact AFTER this week's changes
-                    cumulativeImpact = cumulativeImpact - currentAssignments + currentProposedMargin;
 
+                    const marginImpact2 = (currentProposedMargin + currentAssignments);
+
+                    // Show cumulative impact AFTER this week's changes
+                    // cumulativeImpact = cumulativeImpact - currentAssignments + currentProposedMargin;
+                    cumulativeImpact = cumulativeImpact - marginImpact2;
+                    // cumulativeImpact2 = Number(cumulativeImpact2) + marginImpact2;
+
+                    console.log(`MarginOpportunityPlannerPage: stats:`, 
+                        {
+                            mi2: marginImpact2,
+                            ci: cumulativeImpact,
+                            ci2: cumulativeImpact2,
+                            currentAssignments: currentAssignments,
+                            symbols: row.symbols_not_rollable || '-'
+                        }
+                    )
+                    console.log(`MarginOpportunityPlannerPage.tsx: MarginImpact2 = ${marginImpact2} Cumulative Impact = ${cumulativeImpact}, Cumulative Impact 2 = ${cumulativeImpact2}`);
+
+                    const marginCost = Math.max(0, 7 * ((cumulativeImpact * 0.119) / 365)); // Assuming 11.9% margin cost
+                    
                     return (
                       <tr key={row.week_ending} className="hover:bg-gray-50 transition-colors duration-150">
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        <td className="px-2 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                           {new Date(row.week_ending).toLocaleDateString()}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td className="px-2 py-4 whitespace-nowrap text-sm text-gray-900">
                           <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">
                             {row.symbols_not_rollable || '-'}
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                        <td className="px-2 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
                           ${Number(row.likely_assignments || 0).toLocaleString()}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-2 py-4 whitespace-nowrap">
                           <input
                             type="number"
                             step="0.01"
@@ -708,21 +746,23 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                             placeholder="0.00"
                           />
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                        <td className="px-6  py-4 whitespace-nowrap text-sm text-gray-900 text-right">
                           <span className={`font-medium ${Number(row.margin_impact) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            ${Number(row.margin_impact).toLocaleString()}
+                            ${Number(marginImpact2).toLocaleString()} 
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                        <td className="px-2 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
                           <span className={`font-medium ${cumulativeImpact >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                             ${cumulativeImpact.toLocaleString()}
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                          {row.margin_cost_weekly ? `$${Number(row.margin_cost_weekly).toFixed(2)}` : '-'}
+                        <td className="px-2 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                          {/* {row.margin_cost_weekly ? `$${Number(row.margin_cost_weekly).toFixed(2)}` : '-'} */}
+                          {marginCost && <span> (${marginCost.toFixed(2)})</span>}
                         </td>
-                        <td className="px-6 py-4 min-w-0">
+                        <td className="px-2 py-4 min-w-0 whitespace-nowrap">
                           <textarea
+                            style={{ padding: '0.5rem' }}
                             value={displayNotes}
                             onChange={(e) => updatePlanningGridEdit(row.week_ending, 'notes', e.target.value)}
                             rows={displayNotes.split('\n').length}
@@ -730,7 +770,7 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                             placeholder="Add notes..."
                           />
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-2 py-4 whitespace-nowrap">
                           <div className="flex space-x-2">
                             {hasEdits && (
                               <button
@@ -762,7 +802,60 @@ const MarginOpportunityPlannerPage: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* Help Text Section */}
+          <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
+            <h3 className="text-sm font-medium text-gray-900 mb-3">Column Explanations</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm text-gray-600">
+              <div>
+                <strong className="text-gray-900">Week Ending:</strong> The Saturday date that marks the end of the options expiration week.
+              </div>
+              <div>
+                <strong className="text-gray-900">Symbols (Non-Rollable):</strong> Option symbols that will expire this week and are not marked as rollable.
+              </div>
+              <div>
+                <strong className="text-gray-900">Likely Assignments:</strong> The dollar value of option assignments expected this week based on current positions.
+              </div>
+              <div>
+                <strong className="text-gray-900">Proposed Margin:</strong> The margin amount you plan to maintain for this week. Edit this field to adjust your planned margin level.
+              </div>
+              <div>
+                <strong className="text-gray-900">Margin Impact:</strong> The net change in margin for this week (Proposed Margin - Likely Assignments).
+              </div>
+              <div>
+                <strong className="text-gray-900">Cumulative Margin Impact:</strong> Running total of margin changes from all previous weeks plus this week's impact.
+              </div>
+              <div>
+                <strong className="text-gray-900">Weekly Margin Cost:</strong> The cost of maintaining the proposed margin for this week based on your current margin rate.
+              </div>
+              <div className="md:col-span-2 lg:col-span-1">
+                <strong className="text-gray-900">Notes:</strong> Additional notes or comments about this week's margin planning. Use this to track important decisions or reminders.
+              </div>
+            </div>
+          </div>
         </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      {getHeaderMarkup()}
+
+      {/* Tabs */}
+      {getTabMarkup()}
+
+      {/* Tab Content */}
+      {activeTab === 'master' && (
+        getMasterMarkup()
+      )}
+
+      {activeTab === 'options' && (
+        getOptionsMarkup()
+      )}
+
+      {activeTab === 'planning' && (
+        getPlanningMarkup()
       )}
     </div>
   );

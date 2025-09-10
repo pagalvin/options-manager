@@ -148,18 +148,22 @@ class GeminiService {
   private buildCoveredCallPrompt(symbol: string, data: CoveredCallReportData): string {
     let prompt = `Generate a covered call decision report for the stock ${symbol}. Include:
 
-1. Security overview (sector, price, market cap, dividend, beta)
-2. Position snapshot (cost basis, unrealized gain/loss, tax notes)
-3. Covered call setup (strike, expiration, premium, annualized yield)
-4. Earnings and events (next earnings date, recent results, guidance)
-5. Options chain data (IV, open interest, liquidity)
-6. Technical signals (support/resistance, RSI, trend)
-7. Analyst sentiment
-8. Red flag check: any recent "going concern" language in SEC filings, bankruptcy risk, debt restructuring, or major negative news?
-9. Final recommendation with rationale
+    1. Perform a Google Search for the latest information on ${symbol} to ensure the report is up-to-date.
+    2. Provide a concise summary of the stock's recent performance and outlook.
+    3. Based on your search results, provide the following:
+      a) Red flag report: List any red flags such as 
+        - "going concern" language in recent SEC filings, 
+        - bankruptcy risk,
+        - debt restructuring
+        - insiders selling shares
+        - major lawsuits or regulatory issues
+        - significant management changes
+        - any other  major negative news
+      b) Three bullish reasons to consider selling covered calls on this stock. Be specific to the stock itself, not generic about covered calls.
+      c) Three bearish reasons to be cautious about selling covered calls on this stock. Be specific to the stock itself, not generic about covered calls.
+    4. Provide a link to the investor relations page and latest SEC filings.
 
-Use recent financial filings and news to assess risk. If any red flags exist, highlight them clearly.
-
+    Show all of the above in markdown table format showing two columns: "Section" and "Details".
 `;
 
     // Add contextual data from your database
