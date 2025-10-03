@@ -8,17 +8,17 @@ const navigation = [
   { name: 'Dashboard', href: '/' },
   { name: 'Transactions', href: '/transactions' },
   { name: 'Transaction Analysis', href: '/transaction-analysis' },
-  { name: 'Chains', href: '/chains' },
-  { name: 'Positions', href: '/positions' },
+  // { name: 'Chains', href: '/chains' },
+  // { name: 'Positions', href: '/positions' },
   { name: 'Options', href: '/options' },
   { name: 'Performance', href: '/performance' },
-  { name: 'Premium Cash Flow', href: '/premium-cash-flow' },
+  { name: 'Cash Flow', href: '/premium-cash-flow' },
   { name: 'Margin Analysis', href: '/margin-analysis' },
-  { name: 'Margin Opportunity', href: '/margin-opportunity-planner' },
+  { name: 'Margin Planning', href: '/margin-opportunity-planner' },
   { name: 'Options Analyzer', href: '/analyzer' },
-  { name: 'AI Chat', href: '/chat' },
+  // { name: 'AI Chat', href: '/chat' },
   { name: 'E*TRADE', href: '/etrade' },
-  { name: 'Admin', href: '/admin' },
+  // { name: 'Admin', href: '/admin' },
 ];
 
 export function Navigation() {
@@ -84,7 +84,7 @@ export function Navigation() {
               
               {/* Chart Navigation with Dropdown */}
               <div className="relative">
-                <button
+                {/* <button
                   onClick={() => setShowChartDropdown(!showChartDropdown)}
                   className={cn(
                     'inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium space-x-1',
@@ -99,7 +99,7 @@ export function Navigation() {
                     'transform transition-transform',
                     showChartDropdown ? 'rotate-180' : ''
                   )} />
-                </button>
+                </button> */}
 
                 {/* Dropdown Menu */}
                 {showChartDropdown && (

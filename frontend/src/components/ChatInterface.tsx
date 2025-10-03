@@ -1,5 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, MessageSquare, X, RefreshCw, Trash2, Eye, EyeOff } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { GroundingTest } from './GroundingTest';
 
 export interface ChatMessage {
@@ -108,21 +112,27 @@ export function ChatInterface({ symbol, isOpen, onClose }: ChatInterfaceProps) {
   };
 
   useEffect(() => {
-    scrollToBottom();
+    if (messages.length > 2) {
+      scrollToBottom();
+    }
   }, [messages]);
 
   useEffect(() => {
-    if (symbol && isOpen && messages.length === 0) {
-      // Auto-generate covered call report when opened with a symbol
-      generateCoveredCallReport();
-    }
+    console.log('ChatInterface.tsx: useEffect: generating covered call report for symbol:', symbol);
+    setMessages([]);
+    generateCoveredCallReport();
+    // if (symbol && isOpen && messages.length === 0) {
+    //   // Auto-generate covered call report when opened with a symbol
+    // }
   }, [symbol, isOpen]);
 
   const generateCoveredCallReport = async () => {
     if (!symbol) return;
 
+    setMessages([]);
     setIsLoading(true);
     setError(null);
+    setSessionId(null);
 
     try {
       const response = await fetch(`/api/chat/covered-call-report/${symbol}`, {
@@ -131,7 +141,7 @@ export function ChatInterface({ symbol, isOpen, onClose }: ChatInterfaceProps) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          sessionId: sessionId,
+          sessionId: null,
         }),
       });
 
@@ -284,54 +294,155 @@ export function ChatInterface({ symbol, isOpen, onClose }: ChatInterfaceProps) {
     // Add inline citations if grounding metadata is available
     const textWithCitations = groundingMetadata ? addInlineCitations(content, groundingMetadata) : content;
     
-    // Basic markdown-like formatting
-    const lines = textWithCitations.split('\n');
-    const elements: React.ReactNode[] = [];
-    
-    lines.forEach((line, index) => {
-      // Handle headers
-      if (line.startsWith('# ')) {
-        elements.push(<h1 key={index} className="text-xl font-bold mt-4 mb-2">{line.substring(2)}</h1>);
-      } else if (line.startsWith('## ')) {
-        elements.push(<h2 key={index} className="text-lg font-semibold mt-3 mb-2">{line.substring(3)}</h2>);
-      } else if (line.startsWith('### ')) {
-        elements.push(<h3 key={index} className="text-md font-medium mt-2 mb-1">{line.substring(4)}</h3>);
-      } else {
-        // Handle bold text and citations
-        // Split by both bold and citation patterns
-        const parts = line.split(/(\*\*.*?\*\*|\[\d+\])/g);
-        const formatted = parts.map((part, i) => {
-          if (part.match(/^\*\*(.*)\*\*$/)) {
-            // Bold text
-            return <strong key={i}>{part.substring(2, part.length - 2)}</strong>;
-          } else if (part.match(/^\[\d+\]$/)) {
-            // Citation
-            const citationNum = parseInt(part.match(/\[(\d+)\]/)![1]);
-            const chunk = groundingMetadata?.groundingChunks?.[citationNum - 1];
-            if (chunk) {
-              return (
-                <a
-                  key={i}
-                  href={chunk.web.uri}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:text-blue-800 text-xs font-medium bg-blue-50 px-1 py-0.5 rounded mx-0.5"
-                  title={`Source: ${chunk.web.title}`}
-                >
-                  {part}
-                </a>
-              );
-            }
-            return <span key={i} className="text-blue-600 text-xs font-medium bg-blue-50 px-1 py-0.5 rounded mx-0.5">{part}</span>;
-          }
-          return part;
-        });
-        
-        elements.push(<p key={index} className="mb-1">{formatted}</p>);
-      }
-    });
-    
-    return elements;
+    // Custom components for ReactMarkdown
+    const components = {
+      // Custom citation renderer
+      text: ({ children }: { children: React.ReactNode }) => {
+        const text = String(children);
+        // Check if this text contains citations
+        if (text.match(/\[\d+\]/)) {
+          const parts = text.split(/(\[\d+\])/g);
+          return (
+            <>
+              {parts.map((part, i) => {
+                const citationMatch = part.match(/^\[(\d+)\]$/);
+                if (citationMatch) {
+                  const citationNum = parseInt(citationMatch[1]);
+                  const chunk = groundingMetadata?.groundingChunks?.[citationNum - 1];
+                  if (chunk) {
+                    return (
+                      <a
+                        key={i}
+                        href={chunk.web.uri}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-800 text-xs font-medium bg-blue-50 px-1 py-0.5 rounded mx-0.5 no-underline"
+                        title={`Source: ${chunk.web.title}`}
+                      >
+                        {part}
+                      </a>
+                    );
+                  }
+                  return (
+                    <span key={i} className="text-blue-600 text-xs font-medium bg-blue-50 px-1 py-0.5 rounded mx-0.5">
+                      {part}
+                    </span>
+                  );
+                }
+                return part;
+              })}
+            </>
+          );
+        }
+        return <>{children}</>;
+      },
+      // Table styling
+      table: ({ children }: { children: React.ReactNode }) => (
+        <div className="overflow-x-auto my-2">
+          <table className="min-w-full divide-y divide-gray-200 border border-gray-200 rounded-lg">
+            {children}
+          </table>
+        </div>
+      ),
+      thead: ({ children }: { children: React.ReactNode }) => (
+        <thead className="bg-gray-50">{children}</thead>
+      ),
+      tbody: ({ children }: { children: React.ReactNode }) => (
+        <tbody className="bg-white divide-y divide-gray-200">{children}</tbody>
+      ),
+      th: ({ children }: { children: React.ReactNode }) => (
+        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 last:border-r-0">
+          {children}
+        </th>
+      ),
+      td: ({ children }: { children: React.ReactNode }) => (
+        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200 last:border-r-0">
+          {children}
+        </td>
+      ),
+      // Code blocks
+      code: ({ node, inline, className, children, ...props }: any) => {
+        const match = /language-(\w+)/.exec(className || '');
+        return !inline && match ? (
+          <SyntaxHighlighter
+            style={oneDark}
+            language={match[1]}
+            PreTag="div"
+            className="rounded-lg my-4"
+            {...props}
+          >
+            {String(children).replace(/\n$/, '')}
+          </SyntaxHighlighter>
+        ) : (
+          <code
+            className="bg-gray-100 text-gray-800 px-1 py-0.5 rounded text-sm font-mono"
+            {...props}
+          >
+            {children}
+          </code>
+        );
+      },
+      // Headers
+      h1: ({ children }: { children: React.ReactNode }) => (
+        <h1 className="text-xl font-bold mt-3 mb-2 text-gray-900 border-b border-gray-200 pb-1">
+          {children}
+        </h1>
+      ),
+      h2: ({ children }: { children: React.ReactNode }) => (
+        <h2 className="text-lg font-semibold mt-3 mb-1 text-gray-900">{children}</h2>
+      ),
+      h3: ({ children }: { children: React.ReactNode }) => (
+        <h3 className="text-md font-medium mt-2 mb-1 text-gray-900">{children}</h3>
+      ),
+      // Lists
+      ul: ({ children }: { children: React.ReactNode }) => (
+        <ul className="list-disc list-inside my-1 space-y-0 text-gray-900">{children}</ul>
+      ),
+      ol: ({ children }: { children: React.ReactNode }) => (
+        <ol className="list-decimal list-inside my-1 space-y-0 text-gray-900">{children}</ol>
+      ),
+      li: ({ children }: { children: React.ReactNode }) => (
+        <li className="text-gray-900">{children}</li>
+      ),
+      // Paragraphs
+      p: ({ children }: { children: React.ReactNode }) => (
+        <p className="mb-1 text-gray-900 leading-normal">{children}</p>
+      ),
+      // Emphasis
+      strong: ({ children }: { children: React.ReactNode }) => (
+        <strong className="font-semibold text-gray-900">{children}</strong>
+      ),
+      em: ({ children }: { children: React.ReactNode }) => (
+        <em className="italic text-gray-700">{children}</em>
+      ),
+      // Blockquotes
+      blockquote: ({ children }: { children: React.ReactNode }) => (
+        <blockquote className="border-l-4 border-blue-500 pl-4 my-2 italic text-gray-700 bg-gray-50 py-1">
+          {children}
+        </blockquote>
+      ),
+      // Links
+      a: (props: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
+        <a
+          {...props}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`text-blue-600 hover:text-blue-800 underline ${props.className ?? ''}`}
+        >
+          {props.children}
+        </a>
+      ),
+    };
+
+    return (
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={components as any}
+        className="prose prose-sm max-w-none markdown-content"
+      >
+        {textWithCitations}
+      </ReactMarkdown>
+    );
   };
 
   if (!isOpen) return null;
@@ -492,6 +603,54 @@ export function ChatInterface({ symbol, isOpen, onClose }: ChatInterfaceProps) {
             </button>
           </div>
         </div>
+
+        {/* Global styles for markdown rendering */}
+        <style>{`
+          .markdown-content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0.5rem 0;
+          }
+          
+          .markdown-content th,
+          .markdown-content td {
+            border: 1px solid #e5e7eb;
+            padding: 0.5rem;
+            text-align: left;
+          }
+          
+          .markdown-content th {
+            background-color: #f9fafb;
+            font-weight: 600;
+          }
+          
+          .markdown-content tr:nth-child(even) {
+            background-color: #f9fafb;
+          }
+          
+          .markdown-content pre {
+            overflow-x: auto;
+            background-color: #1f2937;
+            color: #f3f4f6;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            margin: 0.5rem 0;
+          }
+          
+          .markdown-content code {
+            background-color: #f3f4f6;
+            color: #374151;
+            padding: 0.125rem 0.25rem;
+            border-radius: 0.25rem;
+            font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+          }
+          
+          .markdown-content pre code {
+            background-color: transparent;
+            color: inherit;
+            padding: 0;
+          }
+        `}</style>
       </div>
     </div>
   );

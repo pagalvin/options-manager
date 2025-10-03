@@ -548,6 +548,137 @@ export function OptionsAnalyzer() {
     setShowForm(true);
   };
 
+  // Helper function to find best option strategy across multiple expiration dates
+  const findBestOptionStrategy = async (symbol: string, currentPrice: number, maxExpirations: number = 2) => {
+    const exps = await etradeAPI.getOptionExpirationDates(symbol);
+    const expirations = exps?.expirationDates || exps?.ExpirationDates || [];
+    if (!expirations.length) {
+      throw new Error('No option expirations found for this symbol.');
+    }
+
+    // Try up to maxExpirations (default 2 as per PRD - first and next week)
+    const expirationsToTry = expirations.slice(0, maxExpirations);
+    
+    for (let i = 0; i < expirationsToTry.length; i++) {
+      const expiration = expirationsToTry[i];
+      const year = String(expiration.year);
+      const month = String(expiration.month);
+      const day = String(expiration.day);
+      
+      try {
+        const chainRaw = await etradeAPI.getOptionChain(symbol, year, month, day);
+        const chain = chainRaw?.OptionChainResponse ? {
+          ...chainRaw.OptionChainResponse,
+          OptionPair: chainRaw.OptionChainResponse.OptionPair || [],
+          SelectedED: chainRaw.OptionChainResponse.SelectedED,
+        } : chainRaw;
+        const pairs = chain?.optionPairs || chain?.OptionPair || [];
+        
+        if (!pairs.length) {
+          console.warn(`No option chain data for expiration ${year}-${month}-${day}, trying next...`);
+          continue;
+        }
+
+        // Build 1%+ ITM call opportunities (same logic as E*TRADE page)
+        const opportunities = pairs.map((pair: any) => {
+          const c = pair.Call;
+          if (!c) return null;
+          if (c.inTheMoney !== 'y') return null;
+          if (!c.bid || c.bid <= 0) return null;
+          const strikePrice = c.strikePrice as number;
+          const premium = c.bid as number;
+          // Get IV and Delta from OptionGreeks object in E*TRADE response
+          const impliedVolatility = c.OptionGreeks?.iv || c.impliedVolatility || c.iv || null;
+          const delta = c.OptionGreeks?.delta || c.delta || null;
+          const totalRevenue = strikePrice + premium;
+          const gainPercent = ((totalRevenue - currentPrice) / currentPrice) * 100;
+          if (gainPercent >= 1) {
+            return {
+              strikePrice,
+              premium,
+              totalRevenue,
+              gainPercent,
+              impliedVolatility,
+              delta,
+              year,
+              month,
+              day
+            };
+          }
+          return null;
+        }).filter(Boolean) as Array<{ 
+          strikePrice: number; 
+          premium: number; 
+          totalRevenue: number; 
+          gainPercent: number; 
+          impliedVolatility: number | null; 
+          delta: number | null;
+          year: string;
+          month: string;
+          day: string;
+        }>;
+
+        if (opportunities.length > 0) {
+          // Found opportunities for this expiration, choose the smallest priced one
+          opportunities.sort((a, b) => a.totalRevenue - b.totalRevenue);
+          return opportunities[0];
+        }
+        
+        // No opportunities found for this expiration, continue to next
+        console.log(`No 1%+ gain ITM call opportunities found for ${symbol} (exp: ${new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString()}), trying next expiration...`);
+      } catch (error) {
+        console.warn(`Error fetching option chain for expiration ${year}-${month}-${day}:`, error);
+        continue;
+      }
+    }
+
+    // If we get here, no opportunities were found in any of the attempted expirations
+    return null;
+  };
+
+  const updateAllStrategies = async () => {
+    if (entries.length === 0) {
+      alert('No entries to update.');
+      return;
+    }
+
+    if (!window.confirm(`This will update the strategy for all ${entries.length} entries using E*TRADE data. Continue?`)) {
+      return;
+    }
+
+    try {
+      setUpdatingStrategy(true);
+      setError(null);
+      const sessionId = etradeAPI.getSessionId();
+      if (!sessionId) {
+        alert('Please connect to E*TRADE on the E*TRADE page first, then try again.');
+        return;
+      }
+
+      for (const entry of entries) {
+
+        console.log(`Updating strategy for ${entry.security}...`);
+
+        try {
+          await updateStrategyForEntry(entry);
+          console.log(`Successfully updated strategy for ${entry.security}`);
+        } catch (error) {
+          console.error(`Error updating strategy for ${entry.security}:`, error);
+        }
+
+        // brief delay in between calls
+        await new Promise(resolve => setTimeout(resolve, 250));
+
+      }
+
+      setUpdatingStrategy(false);
+    } catch (err) {
+      console.error('Error updating strategies:', err);
+      setError('Failed to update strategies');
+    }
+  };
+
+
   // Update strategy for existing entry (toggles lots: 0 → 1, >0 → 0)
   const updateStrategyForEntry = async (entry: ManualOptionsAnalysis) => {
     const symbol = entry.security.trim().toUpperCase();
@@ -586,67 +717,16 @@ export function OptionsAnalyzer() {
           String(nextEarningDateAsDate.getDate()).padStart(2, '0');
       }
 
-      // 2) Get nearest expiration and fetch option chain
-      const exps = await etradeAPI.getOptionExpirationDates(symbol);
-      const expirations = exps?.expirationDates || exps?.ExpirationDates || [];
-      if (!expirations.length) {
-        alert('No option expirations found for this symbol.');
+      // 2) Find best option strategy across multiple expiration dates
+      const chosen = await findBestOptionStrategy(symbol, currentPrice);
+      
+      if (!chosen) {
+        // alert(`No 1%+ gain ITM call opportunities found for ${symbol} in the next two expiration dates.`);
         return;
       }
-      const first = expirations[0];
-      const year = String(first.year);
-      const month = String(first.month);
-      const day = String(first.day);
-      const chainRaw = await etradeAPI.getOptionChain(symbol, year, month, day);
-      const chain = chainRaw?.OptionChainResponse ? {
-        ...chainRaw.OptionChainResponse,
-        OptionPair: chainRaw.OptionChainResponse.OptionPair || [],
-        SelectedED: chainRaw.OptionChainResponse.SelectedED,
-      } : chainRaw;
-      const pairs = chain?.optionPairs || chain?.OptionPair || [];
-      if (!pairs.length) {
-        alert('No option chain data returned for the nearest expiration.');
-        return;
-      }
-
-      // Build 1%+ ITM call opportunities (same logic as E*TRADE page)
-      const opportunities = pairs.map((pair: any) => {
-        const c = pair.Call;
-        if (!c) return null;
-        if (c.inTheMoney !== 'y') return null;
-        if (!c.bid || c.bid <= 0) return null;
-        const strikePrice = c.strikePrice as number;
-        const premium = c.bid as number;
-        // Get IV and Delta from OptionGreeks object in E*TRADE response
-        const impliedVolatility = c.OptionGreeks?.iv || c.impliedVolatility || c.iv || null;
-        const delta = c.OptionGreeks?.delta || c.delta || null;
-        const totalRevenue = strikePrice + premium;
-        const gainPercent = ((totalRevenue - currentPrice) / currentPrice) * 100;
-        if (gainPercent >= 1) {
-          return {
-            strikePrice,
-            premium,
-            totalRevenue,
-            gainPercent,
-            impliedVolatility,
-            delta,
-          };
-        }
-        return null;
-      }).filter(Boolean) as Array<{ strikePrice: number; premium: number; totalRevenue: number; gainPercent: number; impliedVolatility: number | null; delta: number | null }>;
-
-      if (opportunities.length === 0) {
-        const expDate = new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString();
-        alert(`No 1%+ gain ITM call opportunities found for ${symbol} (exp: ${expDate}).`);
-        return;
-      }
-
-      // Choose the smallest priced opportunity: minimal total revenue (strike + premium)
-      opportunities.sort((a, b) => a.totalRevenue - b.totalRevenue);
-      const chosen = opportunities[0];
 
       // Update the entry directly
-      const optionDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const optionDate = `${chosen.year}-${String(chosen.month).padStart(2, '0')}-${String(chosen.day).padStart(2, '0')}`;
       const updatedEntry = {
         ...entry,
         market_price: currentPrice,
@@ -726,68 +806,33 @@ export function OptionsAnalyzer() {
       console.log(`OptionsAnalyzer.tsx: updateStrategy: parsed next earnings date:`, {neAsDate: nextEarningDateAsDate, neAsString: nextEarningDateAsFormattedString});
 
       setFormData(prev => ({ ...prev, next_earnings_date:  /* formatted as  "2025-08-13" */ nextEarningDateAsDate.getFullYear() + "-" + String(nextEarningDateAsDate.getMonth() + 1).padStart(2, '0') + "-" + String(nextEarningDateAsDate.getDate()).padStart(2, '0') }));
+
+      if (formData.company_name.trim().length < 1 && q?.All?.companyName && q?.All?.companyName.trim().length > 0) {
+        setFormData(prev => ({ ...prev, company_name: q?.All?.companyName }));
+      }
+
+      try {
+      if (formData.ex_dividend_date.trim().length < 1 && q?.All?.exDividendDate && q?.All?.exDividendDate?.trim().length > 0) {
+        const exDividendDateAsDate = new Date(q?.All?.exDividendDate);
+        setFormData(prev => ({ ...prev, ex_dividend_date:  exDividendDateAsDate.getFullYear() + "-" + String(exDividendDateAsDate.getMonth() + 1).padStart(2, '0') + "-" + String(exDividendDateAsDate.getDate()).padStart(2, '0') }));
+      }
     }
-      // 2) Get nearest expiration and fetch option chain
-      const exps = await etradeAPI.getOptionExpirationDates(symbol);
-      const expirations = exps?.expirationDates || exps?.ExpirationDates || [];
-      if (!expirations.length) {
-        alert('No option expirations found for this symbol.');
+    catch (ex) {
+      console.warn(`OptionsAnalyzer.tsx: updateStrategy: error parsing ex-dividend date:`, ex);
+      setFormData(prev => ({ ...prev, ex_dividend_date: '' }));
+    }
+    }
+      
+      // 2) Find best option strategy across multiple expiration dates
+      const chosen = await findBestOptionStrategy(symbol, currentPrice);
+      
+      if (!chosen) {
+        // alert(`No 1%+ gain ITM call opportunities found for ${symbol} in the next two expiration dates.`);
         return;
       }
-      const first = expirations[0];
-      const year = String(first.year);
-      const month = String(first.month);
-      const day = String(first.day);
-      const chainRaw = await etradeAPI.getOptionChain(symbol, year, month, day);
-      const chain = chainRaw?.OptionChainResponse ? {
-        ...chainRaw.OptionChainResponse,
-        OptionPair: chainRaw.OptionChainResponse.OptionPair || [],
-        SelectedED: chainRaw.OptionChainResponse.SelectedED,
-      } : chainRaw;
-      const pairs = chain?.optionPairs || chain?.OptionPair || [];
-      if (!pairs.length) {
-        alert('No option chain data returned for the nearest expiration.');
-        return;
-      }
-
-      // Build 1%+ ITM call opportunities (same logic as E*TRADE page)
-      const opportunities = pairs.map((pair: any) => {
-        const c = pair.Call;
-        if (!c) return null;
-        if (c.inTheMoney !== 'y') return null;
-        if (!c.bid || c.bid <= 0) return null;
-        const strikePrice = c.strikePrice as number;
-        const premium = c.bid as number;
-        // Get IV and Delta from OptionGreeks object in E*TRADE response
-        const impliedVolatility = c.OptionGreeks?.iv || c.impliedVolatility || c.iv || null;
-        const delta = c.OptionGreeks?.delta || c.delta || null;
-        const totalRevenue = strikePrice + premium;
-        const gainPercent = ((totalRevenue - currentPrice) / currentPrice) * 100;
-        if (gainPercent >= 1) {
-          return {
-            strikePrice,
-            premium,
-            totalRevenue,
-            gainPercent,
-            impliedVolatility,
-            delta,
-          };
-        }
-        return null;
-      }).filter(Boolean) as Array<{ strikePrice: number; premium: number; totalRevenue: number; gainPercent: number; impliedVolatility: number | null; delta: number | null }>;
-
-      if (opportunities.length === 0) {
-        const expDate = new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString();
-        alert(`No 1%+ gain ITM call opportunities found for ${symbol} (exp: ${expDate}).`);
-        return;
-      }
-
-      // Choose the smallest priced opportunity: minimal total revenue (strike + premium)
-      opportunities.sort((a, b) => a.totalRevenue - b.totalRevenue);
-      const chosen = opportunities[0];
 
       // Update form fields: option_date (YYYY-MM-DD), strike, premium, IV, delta
-      const optionDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const optionDate = `${chosen.year}-${String(chosen.month).padStart(2, '0')}-${String(chosen.day).padStart(2, '0')}`;
       setFormData(prev => ({
         ...prev,
         option_date: optionDate,
@@ -908,6 +953,14 @@ export function OptionsAnalyzer() {
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
           >
             {showForm ? 'Cancel' : 'Add New Entry'}
+          </button>
+          <button
+            onClick={updateAllStrategies}
+            disabled={updatingStrategy || entries.length === 0}
+            className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center space-x-2"
+          >
+            {updatingStrategy ? <RefreshCw className="animate-spin" size={16} /> : <Wand2 size={16} />}
+            <span>Update All Strategies</span>
           </button>
         </div>
       </div>

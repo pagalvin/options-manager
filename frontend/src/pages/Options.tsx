@@ -1302,7 +1302,7 @@ export function Options() {
                                         TOTALS / AVERAGES
                                     </td>
                                     <td
-                                        className={`px-4 py-4 whitespace-nowrap text-sm font-bold text-right ${
+                                        className={`whitespace-nowrap text-sm font-bold text-right ${
                                             optionAnalysis
                                                 .filter((analysis) => !hideZeroLots || analysis.totalLots > 0)
                                                 .reduce((sum, a) => sum + a.netPremiumAllTime, 0) >= 0
@@ -1334,7 +1334,7 @@ export function Options() {
                                         )}
                                     </td>
                                     <td
-                                        className={`px-4 py-4 whitespace-nowrap text-sm font-bold text-right ${
+                                        className={`whitespace-nowrap text-sm font-bold text-right ${
                                             optionAnalysis
                                                 .filter((analysis) => !hideZeroLots || analysis.totalLots > 0)
                                                 .reduce((sum, a) => sum + a.netPremiumLastMonth, 0) >= 0
@@ -1350,7 +1350,7 @@ export function Options() {
                                         )}
                                     </td>
                                     <td
-                                        className={`px-4 py-4 whitespace-nowrap text-sm font-bold text-right ${
+                                        className={`whitespace-nowrap text-sm font-bold text-right ${
                                             optionAnalysis
                                                 .filter((analysis) => !hideZeroLots || analysis.totalLots > 0)
                                                 .reduce((sum, a) => sum + a.netPremiumTwoMonthsAgo, 0) >= 0
@@ -1365,7 +1365,7 @@ export function Options() {
                                                 .reduce((sum, a) => sum + a.netPremiumTwoMonthsAgo, 0)
                                         )}
                                     </td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 text-right">
+                                    <td className="whitespace-nowrap text-sm font-bold text-gray-900 text-right">
                                         $
                                         {formatNumber(
                                             optionAnalysis
@@ -1373,7 +1373,7 @@ export function Options() {
                                                 .reduce((sum, a) => sum + a.allInvestmentsAllTime, 0)
                                         )}
                                     </td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 text-right">
+                                    <td className="whitespace-nowrap text-sm font-bold text-gray-900 text-right">
                                         $
                                         {formatNumber(
                                             optionAnalysis
@@ -1382,7 +1382,7 @@ export function Options() {
                                         )}
                                     </td>
                                     <td
-                                        className={`px-4 py-4 whitespace-nowrap text-sm font-bold text-right ${
+                                        className={`whitespace-nowrap text-sm font-bold text-right ${
                                             optionAnalysis
                                                 .filter((analysis) => !hideZeroLots || analysis.totalLots > 0)
                                                 .reduce((sum, a) => sum + a.currentExposure, 0) >= 0
@@ -1397,7 +1397,7 @@ export function Options() {
                                                 .reduce((sum, a) => sum + a.currentExposure, 0)
                                         )}
                                     </td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 text-right">
+                                    <td className="whitespace-nowrap text-sm font-bold text-gray-900 text-right">
                                         $
                                         {formatNumber(
                                             optionAnalysis
@@ -1411,7 +1411,7 @@ export function Options() {
                                                 )
                                         )}
                                     </td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 text-right">
+                                    <td className="whitespace-nowrap text-sm font-bold text-gray-900 text-right">
                                         $
                                         {formatNumber(
                                             optionAnalysis
@@ -1427,7 +1427,7 @@ export function Options() {
                                         )}
                                     </td>
                                     <td
-                                        className={`px-4 py-4 whitespace-nowrap text-sm font-bold text-right ${
+                                        className={`whitespace-nowrap text-sm font-bold text-right ${
                                             optionAnalysis
                                                 .filter((analysis) => !hideZeroLots || analysis.totalLots > 0)
                                                 .reduce((sum, a) => sum + a.absolutePremiumGainPercentage, 0) /
@@ -1455,7 +1455,7 @@ export function Options() {
                                         )}
                                         %
                                     </td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 text-right">
+                                    <td className="whitespace-nowrap text-sm font-bold text-gray-900 text-right">
                                         {formatNumber(
                                             optionAnalysis
                                                 .filter((analysis) => !hideZeroLots || analysis.totalLots > 0)
@@ -1464,7 +1464,7 @@ export function Options() {
                                         )}
                                     </td>
                                     <td
-                                        className={`px-4 py-4 whitespace-nowrap text-sm font-bold text-right ${
+                                        className={`whitespace-nowrap text-sm font-bold text-right ${
                                             optionAnalysis
                                                 .filter((analysis) => !hideZeroLots || analysis.totalLots > 0)
                                                 .reduce((sum, a) => sum + a.premiumGainedThisWeek, 0) >= 0
@@ -1490,7 +1490,7 @@ export function Options() {
                                             </span>
                                         </div>
                                     </td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 text-right">
+                                    <td className="whitespace-nowrap text-sm font-bold text-gray-900 text-right">
                                         $
                                         {formatNumber(
                                             optionAnalysis
@@ -1507,7 +1507,7 @@ export function Options() {
                                     </td>
 
                                     <td
-                                        className={`px-4 py-4 whitespace-nowrap text-sm font-bold text-right ${
+                                        className={`whitespace-nowrap text-sm font-bold text-right ${
                                             optionAnalysis
                                                 .filter((analysis) => !hideZeroLots || analysis.totalLots > 0)
                                                 .reduce((sum, a) => sum + (a.recommendedWeeklyPremium || 0), 0) >= 0
@@ -1524,7 +1524,7 @@ export function Options() {
                                     </td>
 
                                     <td
-                                        className={`px-4 py-4 whitespace-nowrap text-sm font-bold text-right ${
+                                        className={`whitespace-nowrap text-sm font-bold text-right ${
                                             optionAnalysis
                                                 .filter((analysis) => !hideZeroLots || analysis.totalLots > 0)
                                                 .reduce((sum, a) => sum + a.currentMaxPotentialProfit, 0) >= 0
@@ -1541,7 +1541,7 @@ export function Options() {
                                     </td>
 
                                     <td
-                                        className={`px-4 py-4 whitespace-nowrap text-sm font-bold text-right ${
+                                        className={`whitespace-nowrap text-sm font-bold text-right ${
                                             optionAnalysis
                                                 .filter((analysis) => !hideZeroLots || analysis.totalLots > 0)
                                                 .reduce((sum, a) => sum + a.currentMaxGainLossPercentage, 0) /
@@ -1558,23 +1558,10 @@ export function Options() {
                                     >
 
                                         ${formatNumber(100 * (totalMaxGain / totalExposure))}%
-                                        {/* xyzzy (${totalExposure.toFixed(2)}) max gain ${totalMaxGain.toFixed(2)}
-                                        {formatNumber(
-                                            optionAnalysis
-                                                .filter((analysis) => !hideZeroLots || analysis.totalLots > 0)
-                                                .reduce((sum, a) => sum + a.currentMaxGainLossPercentage, 0) /
-                                                Math.max(
-                                                    optionAnalysis.filter(
-                                                        (analysis) => !hideZeroLots || analysis.totalLots > 0
-                                                    ).length,
-                                                    1
-                                                )
-                                        )}
-                                        % */}
                                     </td>
 
                                     <td
-                                        className={`px-4 py-4 whitespace-nowrap text-sm font-bold text-right ${
+                                        className={` whitespace-nowrap text-sm font-bold text-right ${
                                             optionAnalysis
                                                 .filter((analysis) => !hideZeroLots || analysis.totalLots > 0)
                                                 .filter((analysis) => isFinite(analysis.maxAnnualizedROI) && analysis.maxAnnualizedROI !== 0)

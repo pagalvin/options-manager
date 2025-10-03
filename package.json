@@ -17,8 +17,20 @@
   "devDependencies": {
     "concurrently": "^8.2.2"
   },
-  "keywords": ["options", "trading", "roi", "finance", "etrade"],
+  "keywords": [
+    "options",
+    "trading",
+    "roi",
+    "finance",
+    "etrade"
+  ],
   "author": "",
   "license": "UNLICENSED",
-  "private": true
+  "private": true,
+  "dependencies": {
+    "@tailwindcss/typography": "^0.5.16",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^15.6.6",
+    "remark-gfm": "^4.0.1"
+  }
 }

@@ -179,6 +179,101 @@ export class MarginOpportunityPlannerService {
     return result.rows.map(row => row.week_ending);
   }
 
+  // Load options from ETrade and replace existing data
+  async loadOptionsFromETrade(sessionId: string): Promise<void> {
+    const { etradeService } = require('./etradeService');
+    
+    // Get all accounts and their positions using existing methods
+    const accounts = await etradeService.getAccountList(sessionId);
+    console.log(`Found ${accounts.length} accounts`);
+    const allPositions = [];
+    
+    for (const account of accounts) {
+      try {
+        const portfolioResponse = await etradeService.getPortfolio(sessionId, account.accountIdKey);
+        
+        // Handle both response formats
+        const portfolios = portfolioResponse.PortfolioResponse?.AccountPortfolio || 
+                          portfolioResponse.accountPortfolio || [];
+        
+        console.log(`Account ${account.accountIdKey}: Found ${portfolios.length} portfolios`);
+        
+        for (const portfolio of portfolios) {
+          const positions = portfolio.Position || portfolio.position || [];
+          console.log(`Portfolio has ${positions.length} positions`);
+          allPositions.push(...positions);
+        }
+      } catch (error) {
+        console.error(`Error getting portfolio for account ${account.accountIdKey}:`, error);
+      }
+    }
+    
+    console.log(`Total positions found: ${allPositions.length}`);
+    
+    // Log some sample positions to see their structure
+    if (allPositions.length > 0) {
+      console.log('Sample position structure:', JSON.stringify(allPositions[0], null, 2));
+    }
+    
+    // Filter for options only and transform to our format
+    const optionPositions = allPositions.filter(position => 
+      position.Product?.typeCode === 'OPTN' || position.Product?.callPut
+    );
+    
+    console.log(`Found ${optionPositions.length} option positions after filtering`);
+    
+    if (optionPositions.length > 0) {
+      console.log('Sample option position:', JSON.stringify(optionPositions[0], null, 2));
+    }
+    
+    // Clear existing options
+    await this.pool.query('DELETE FROM overlord.margin_planning_options');
+    console.log('Cleared existing options');
+    
+    // Insert new options from ETrade
+    let insertedCount = 0;
+    for (const position of optionPositions) {
+      const product = position.Product;
+      
+      // Parse expiration date from separate year/month/day fields
+      let strikeDate = null;
+      if (product?.expiryYear && product?.expiryMonth && product?.expiryDay) {
+        strikeDate = new Date(product.expiryYear, product.expiryMonth - 1, product.expiryDay);
+      } else if (product?.expiryDate) {
+        // Fallback to expiryDate if available
+        strikeDate = new Date(product.expiryDate);
+      }
+      
+      const strikePrice = product?.strikePrice || 0;
+      const symbol = product?.symbol;
+      const callPut = product?.callPut === 'CALL' ? 'C' : 'P';
+      const quantity = Math.abs(position.quantity || 0);
+      
+      // Determine if this is a short position (covered call scenario)
+      const isShort = (position.quantity || 0) < 0;
+      
+      console.log(`Processing option: ${symbol} ${callPut} ${strikePrice} exp ${strikeDate} qty ${quantity}`);
+      
+      if (symbol && strikeDate && strikePrice > 0) {
+        try {
+          await this.pool.query(`
+            INSERT INTO overlord.margin_planning_options 
+            (symbol, strike_date, strike_price, total_contracts, rollable)
+            VALUES ($1, $2, $3, $4, $5)
+          `, [symbol, strikeDate, strikePrice, quantity, !isShort]);
+          insertedCount++;
+          console.log(`Inserted option: ${symbol} ${callPut} ${strikePrice}`);
+        } catch (error) {
+          console.error(`Failed to insert option ${symbol}:`, error);
+        }
+      } else {
+        console.log(`Skipping option due to missing data: symbol=${symbol}, strikeDate=${strikeDate}, strikePrice=${strikePrice}`);
+      }
+    }
+    
+    console.log(`Successfully inserted ${insertedCount} options`);
+  }
+
   // Ensure margin plan records exist for all weeks with expirations
   async ensureMarginPlanRecords(): Promise<void> {
     const weeks = await this.getWeeksWithExpirations();

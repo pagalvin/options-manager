@@ -1,0 +1,477 @@
+# Overview
+
+Use the etrade accounts api to retrieve accounts and positions from etrade
+
+There is also ready code in the system for connecting to ETrade.
+
+## User Interface
+
+Add a new tab to the Etrade page (route: /etrade)
+
+The new tab should be labeled "Positions"
+
+It should show useful informmation about my portfolio based on what you can retrieve from eTrade using the API.
+
+## Logic
+
+For now, just retrieve the data for display purposes. Do not update the database or modify any other functionality in the system.
+
+## API Details
+
+
+### LIst Accounts API
+
+Accounts API
+Overview
+This API returns a list of E*TRADE accounts for the current user.
+
+HTTP Method: GET
+Live URL
+content_copy
+                    https://api.etrade.com/v1/accounts/list
+                
+Sandbox URL
+content_copy
+                    https://apisb.etrade.com/v1/accounts/list
+                
+Response
+Status Code	Reason	Response Model	Error Code
+200	Successful operation.	AccountListResponse	
+204	No records available		105
+500	Your request could not be completed at this time. For more information please contact a Financial Services representative at 1-800-ETRADE-1 (1-800-387-2331) or email us at service@etrade.com.		100
+500	Currently we are undergoing maintenance, please try again later.		670
+Account link
+Property	Type	Description	Possible Values
+instNo	integer	-	
+accountId	string	The user's account ID	
+accountIdKey	string	The unique account key	
+accountMode	string	The account mode	CASH, MARGIN, CHECKING, IRA, SAVINGS, CD
+accountDesc	string	Description of account	
+accountName	string	The nickname for the account	
+accountType	string	The account type	AMMCHK, ARO, BCHK, BENFIRA, BENFROTHIRA, BENF_ESTATE_IRA, BENF_MINOR_IRA, BENF_ROTH_ESTATE_IRA, BENF_ROTH_MINOR_IRA, BENF_ROTH_TRUST_IRA, BENF_TRUST_IRA, BRKCD, BROKER, CASH, C_CORP, CONTRIBUTORY, COVERDELL_ESA, CONVERSION_ROTH_IRA, CREDITCARD, COMM_PROP, CONSERVATOR, CORPORATION, CSA, CUSTODIAL, DVP, ESTATE, EMPCHK, EMPMMCA, ETCHK, ETMMCHK, HEIL, HELOC, INDCHK, INDIVIDUAL, INDIVIDUAL_K, INVCLUB, INVCLUB_C_CORP, INVCLUB_LLC_C_CORP, INVCLUB_LLC_PARTNERSHIP, INVCLUB_LLC_S_CORP, INVCLUB_PARTNERSHIP, INVCLUB_S_CORP, INVCLUB_TRUST, IRA_ROLLOVER, JOINT, JTTEN, JTWROS, LLC_C_CORP, LLC_PARTNERSHIP, LLC_S_CORP, LLP, LLP_C_CORP, LLP_S_CORP, IRA, IRACD, MONEY_PURCHASE, MARGIN, MRCHK, MUTUAL_FUND, NONCUSTODIAL, NON_PROFIT, OTHER, PARTNER, PARTNERSHIP, PARTNERSHIP_C_CORP, PARTNERSHIP_S_CORP, PDT_ACCOUNT, PM_ACCOUNT, PREFCD, PREFIRACD, PROFIT_SHARING, PROPRIETARY, REGCD, ROTHIRA, ROTH_INDIVIDUAL_K, ROTH_IRA_MINORS, SARSEPIRA, S_CORP, SEPIRA, SIMPLE_IRA, TIC, TRD_IRA_MINORS, TRUST, VARCD, VARIRACD
+institutionType	string	The institution type of the account	BROKERAGE
+accountStatus	string	The status of the account	ACTIVE, CLOSED
+closedDate	integer (int64)	The date when the account was closed	
+shareWorksAccount	boolean	Is Shareworks Account ?	
+shareWorksSource	string	Shareworks Source	
+fcManagedMssbClosedAccount	boolean	-	
+AccountListResponse link
+Property	Type	Description	Possible Values
+accounts	Accounts	List of accounts	
+Accounts link
+Property	Type	Description	Possible Values
+account	array[Account]	Display the type, description for each of the user's accounts as well as a detail display for each account.	
+Example
+Request
+content_copy
+                    https://api.etrade.com/v1/accounts/list
+                
+Response
+content_copy
+                    
+<?xml version="1.0" encoding="UTF-8"?>
+<AccountListResponse>
+   <Accounts>
+      <Account>
+         <accountId>840104290</accountId>
+         <accountIdKey>JIdOIAcSpwR1Jva7RQBraQ</accountIdKey>
+         <accountMode>MARGIN</accountMode>
+         <accountDesc>INDIVIDUAL</accountDesc>
+         <accountName>Individual Brokerage</accountName>
+         <accountType>INDIVIDUAL</accountType>
+         <institutionType>BROKERAGE</institutionType>
+         <accountStatus>ACTIVE</accountStatus>
+         <closedDate>0</closedDate>
+      </Account>
+   </Accounts>
+</AccountListResponse>
+                          
+                                  
+
+### View Portfolio API
+
+View Portfolio link
+Description
+This API provides detailed portfolio information for a selected brokerage account.
+
+HTTP Method: GET
+Live URL
+content_copy
+                    https://api.etrade.com/v1/accounts/{accountIdKey}/portfolio
+                
+Sandbox URL
+content_copy
+                    https://apisb.etrade.com/v1/accounts/{accountIdKey}/portfolio
+                
+Request
+Property	Type	Required?	Description	Allowable Values
+accountIdKey	path	yes	The unique account key. Retrievable by calling the List Accounts API.	
+count	query	no	The number of positions to return in the response. If not specified, defaults to 50. Used for paging as described in the Notes below.	
+sortBy	query	no	The sort by query. Sorting done based on the column specified in the query paramater.	SYMBOL, TYPE_NAME, EXCHANGE_NAME, CURRENCY, QUANTITY, LONG_OR_SHORT, DATE_ACQUIRED, PRICEPAID, TOTAL_GAIN, TOTAL_GAIN_PCT, MARKET_VALUE, BI, ASK, PRICE_CHANGE, PRICE_CHANGE_PCT, VOLUME, WEEK_52_HIGH, WEEK_52_LOW, EPS, PE_RATIO, OPTION_TYPE, STRIKE_PRICE, PREMIUM, EXPIRATION, DAYS_GAIN, COMMISSION, MARKETCAP, PREV_CLOSE, OPEN, DAYS_RANGE, TOTAL_COST, DAYS_GAIN_PCT, PCT_OF_PORTFOLIO, LAST_TRADE_TIME, BASE_SYMBOL_PRICE, WEEK_52_RANGE, LAST_TRADE, SYMBOL_DESC, BID_SIZE, ASK_SIZE, OTHER_FEES, HELD_AS, OPTION_MULTIPLIER, DELIVERABLES, COST_PERSHARE, DIVIDEND, DIV_YIELD, DIV_PAY_DATE, EST_EARN, EX_DIV_DATE, TEN_DAY_AVG_VOL, BETA, BID_ASK_SPREAD, MARGINABLE, DELTA_52WK_HI, DELTA_52WK_LOW, PERF_1MON, ANNUAL_DIV, PERF_12MON, PERF_3MON, PERF_6MON, PRE_DAY_VOL, SV_1MON_AVG, SV_10DAY_AVG, SV_20DAY_AVG, SV_2MON_AVG, SV_3MON_AVG, SV_4MON_AVG, SV_6MON_AVG, DELTA, GAMMA, IV_PCT, THETA, VEGA, ADJ_NONADJ_FLAG, DAYS_EXPIRATION, OPEN_INTEREST, INSTRINIC_VALUE, RHO, TYPE_CODE, DISPLAY_SYMBOL, AFTER_HOURS_PCTCHANGE, PRE_MARKET_PCTCHANGE, EXPAND_COLLAPSE_FLAG
+sortOrder	query	no	The sort order query. Default: DESC.	ASC, DESC
+pageNumber	query	no	The specific page that in the list that is to be returned. Each page has a default count of 50 positions.	
+marketSession	query	no	The market session. Default: REGULAR	REGULAR, EXTENDED
+totalsRequired	query	no	It gives the total values of the portfolio. Default: false.	
+lotsRequired	query	no	It gives position lots for positions. Default: false.	
+view	query	no	The view query. Default: Quick.	PERFORMANCE, FUNDAMENTAL, OPTIONSWATCH, QUICK, COMPLETE
+Response
+Status Code	Reason	Response Model	Error Code
+200	Successful operation.	PortfolioResponse	
+204	Portfolio Information service call success with no data		1007
+204	Data not found for the given input		53
+204	PositionLots service returns data not found		153
+400	Please provide a valid provider.		1008
+400	Account key does not belong to user.		100
+400	Invalid page number passed		1006
+400	No positionIds passed.		101
+400	Invalid count passed		1005
+400	Please enter valid account key.		102
+400	Invalid totals required passed		1004
+400	Invalid account number.		1103
+400	Invalid userId passed.		103
+400	Too many symbols were passed. Please provide a maximum of 10 symbols.		1102
+400	Invalid lots required passed.		1003
+400	Please provide valid symbol(s), as some of the symbol(s) are not valid.		1101
+400	Invalid Date passed.		1002
+400	Invalid sort parameter passed		1100
+400	Invalid LotId passed.		1001
+400	Resource not found		404
+500	Portfolio information service is not available, try after sometime.		611
+500	Due to technical difficulties, we are unable to get your portfolio information. Please re-attempt later. We apologize for the inconvenience.		612
+AccountPortfolio link
+Property	Type	Description	Possible Values
+accountId	string	Numeric account ID	
+next	string	The next account portfolio item	
+totalNoOfPages	integer (int32)	The total number of pages	
+nextPageNo	string	The next page number	
+position	array[Position]	Container for one or more account position elements	
+CompleteView link
+Property	Type	Description	Possible Values
+priceAdjustedFlag	boolean	The price adjusted flag	
+price	number	The current market price	
+adjPrice	number	The adjusted price	
+change	number	The change	
+changePct	number	The change percentage	
+prevClose	number	The previous close	
+adjPrevClose	number	The adjusted previous close	
+volume	number	The volume	
+lastTrade	number	The last trade	
+lastTradeTime	integer (int64)	The time of the last trade	
+adjLastTrade	number	The adjusted last trade	
+symbolDescription	string	The symbol description	
+perform1Month	number	The one-month performance	
+perform3Month	number	The three-month performance	
+perform6Month	number	The six-month performance	
+perform12Month	number	The 12-month performance	
+prevDayVolume	integer (int64)	The previous day's volume	
+tenDayVolume	integer (int64)	The 10 day average volume	
+beta	number	The beta	
+sv10DaysAvg	number	The 10 day average stochastic volatility	
+sv20DaysAvg	number	The 20 day average stochastic volatility	
+sv1MonAvg	number	The one month average stochastic volatility	
+sv2MonAvg	number	The two month average stochastic volatility	
+sv3MonAvg	number	The three month average stochastic volatility	
+sv4MonAvg	number	The four month average stochastic volatility	
+sv6MonAvg	number	The six month average stochastic volatility	
+week52High	number	The 52 week high	
+week52Low	number	The 52 week low	
+week52Range	string	The 52 week range	
+marketCap	number	The market cap	
+daysRange	string	The day's range	
+delta52WkHigh	number	The high for the 52 week high/low delta calculation	
+delta52WkLow	number	The low for the 52 week high/low delta calculation	
+currency	string	The currency	
+exchange	string	The exchange	
+marginable	boolean	The sum available for margin	
+bid	number	The bid	
+ask	number	The ask	
+bidAskSpread	number	The bid ask spread	
+bidSize	integer (int64)	The size of the bid	
+askSize	integer (int64)	The size of the ask	
+open	number	The open	
+delta	number	The delta	
+gamma	number	The gamma	
+ivPct	number	The Implied Volatility (IV) percentage	
+rho	number	The rho	
+theta	number	The theta	
+vega	number	The vega	
+premium	number	The premium	
+daysToExpiration	integer (int32)	The days remaining until expiration	
+intrinsicValue	number	The intrinsic value	
+openInterest	number	The open interest	
+optionsAdjustedFlag	boolean	The options adjusted flag	
+deliverablesStr	string	The deliverables	
+optionMultiplier	number	The option multiplier	
+baseSymbolAndPrice	string	The price of the underlying or base symbol	
+estEarnings	number	The estimated earnings	
+eps	number	The earnings per share	
+peRatio	number	The Price to Earnings (P/E) ratio	
+annualDividend	number	The annual dividend	
+dividend	number	The dividend	
+divYield	number	The dividend yield	
+divPayDate	integer (int64)	The date of the dividend pay	
+exDividendDate	integer (int64)	The extended dividend date	
+cusip	string	The CUSIP number	
+quoteStatus	string	The quote type	REALTIME, DELAYED, CLOSING, EH_REALTIME, EH_BEFORE_OPEN, EH_CLOSED
+FundamentalView link
+Property	Type	Description	Possible Values
+lastTrade	number	The last trade total	
+lastTradeTime	integer (int64)	The time of the last trade	
+change	number	The change	
+changePct	number	The change percentage	
+peRatio	number	The Price to Earnings (P/E) ratio	
+eps	number	The earnings per share	
+dividend	number	The dividend	
+divYield	number	The dividend yield	
+marketCap	number	The market cap	
+week52Range	string	The 52 week range	
+quoteStatus	string	The quote type	REALTIME, DELAYED, CLOSING, EH_REALTIME, EH_BEFORE_OPEN, EH_CLOSED
+OptionsWatchView link
+Property	Type	Description	Possible Values
+baseSymbolAndPrice	string	The price of the underlying or base symbol of the option	
+premium	number	The option premium	
+lastTrade	number	The last trade	
+bid	number	The bid	
+ask	number	The ask	
+quoteStatus	string	The quote type	REALTIME, DELAYED, CLOSING, EH_REALTIME, EH_BEFORE_OPEN, EH_CLOSED
+lastTradeTime	integer (int64)	The time of the last trade	
+PerformanceView link
+Property	Type	Description	Possible Values
+change	number	The change	
+changePct	number	The change percentage	
+lastTrade	number	The last trade	
+daysGain	number	The gain over the day	
+totalGain	number	The total gain	
+totalGainPct	number	The total gain percentage	
+marketValue	number	The market value	
+quoteStatus	string	The quote type	REALTIME, DELAYED, CLOSING, EH_REALTIME, EH_BEFORE_OPEN, EH_CLOSED
+lastTradeTime	integer (int64)	The time of the last trade	
+PortfolioResponse link
+Property	Type	Description	Possible Values
+totals	Totals	The portfolio totals	
+accountPortfolio	array[AccountPortfolio]	The account portfolio array	
+Position link
+Property	Type	Description	Possible Values
+positionId	integer (int64)	The position ID	
+accountId	string	Numeric account ID	
+product	Product	The product	
+osiKey	string	The Options Symbology Initiative (OSI) key containing the option root symbol, expiration date, call/put indicator, and strike price	
+symbolDescription	string	The symbol description	
+dateAcquired	integer (int64)	The date the position was acquired	
+pricePaid	number	The price paid for the position	
+price	number	The price of the position	
+commissions	number	The commissions paid for the position	
+otherFees	number	The other fees paid to acquire the position	
+quantity	number	The quantity	
+positionIndicator	string	The position indicator	TYPE1, TYPE2, TYPE5, UNDEFINED
+positionType	string	The position type	
+change	number	The change	
+changePct	number	The percentage change	
+daysGain	number	The day's gain	
+daysGainPct	number	The percentage day's gain	
+marketValue	number	The market value	
+totalCost	number	The total cost	
+totalGain	number	The total gain	
+totalGainPct	number	The total gain percentage	
+pctOfPortfolio	number	The percentage of the portfolio	
+costPerShare	number	The cost per share	
+todayCommissions	number	Today's total commissions	
+todayFees	number	Today's total fees	
+todayPricePaid	number	Today's total price paid	
+todayQuantity	number	Today's total quantity	
+quotestatus	string	The quote type	
+dateTimeUTC	integer (int64)	The date and time in UTC	
+adjPrevClose	number	The previous adjusted close	
+performance	PerformanceView	The performance view	
+fundamental	FundamentalView	The fundamental view	
+optionsWatch	OptionsWatchView	The options watch view	
+quick	QuickView	The quick view	
+complete	CompleteView	The complete view	
+lotsDetails	string	The lots details	
+quoteDetails	string	The quote details	
+positionLot	array[PositionLot]	The position lot	
+PositionLot link
+Property	Type	Description	Possible Values
+positionId	integer (int64)	The position ID	
+positionLotId	integer (int64)	The position lot ID	
+price	number (double)	The position lot price	
+termCode	integer (int32)	The term code	
+daysGain	number (double)	The days gain	
+daysGainPct	number (double)	The days gain percentage	
+marketValue	number (double)	The market value	
+totalCost	number (double)	The total cost	
+totalCostForGainPct	number (double)	The total cost for the percentage gain	
+totalGain	number (double)	The total gain	
+lotSourceCode	integer (int32)	The lot source code	
+originalQty	number	The original quantity	
+remainingQty	number	The remaining quantity	
+availableQty	number	The available quantity	
+orderNo	integer (int64)	The order number	
+legNo	integer (int32)	The leg number	
+acquiredDate	integer (int64)	The date acquired	
+locationCode	integer (int32)	The location code	
+exchangeRate	number (double)	The exchange rate	
+settlementCurrency	string	The settlement currency	
+paymentCurrency	string	The payment currency	
+adjPrice	number (double)	The adjusted price	
+commPerShare	number (double)	The commissions per share	
+feesPerShare	number (double)	The fees per share	
+premiumAdj	number	The adjusted premium	
+shortType	integer (int32)	The short type	
+Product link
+Property	Type	Description	Possible Values
+symbol	string	The symbol for which the quote details are being accessed	
+securityType	string	The type code to identify the order or leg request	BOND, EQ, INDX, MF, MMF, OPTN
+securitySubType	string	The subtype of the security	
+callPut	string	The option type - either CALL or PUT	CALL, PUT
+expiryYear	integer (int32)	The four-digit year the option will expire	
+expiryMonth	integer (int32)	The month (1-12) the option will expire	
+expiryDay	integer (int32)	The day (1-31) the option will expire	
+strikePrice	number	The strike price for the option	
+expiryType	string	The expiration type for the option	
+productId	ProductId	ProductId	
+ProductId link
+Property	Type	Description	Possible Values
+symbol	string	The market symbol for the security being bought or sold	
+typeCode	string	Product Type Code	EQUITY, OPTION, MUTUAL_FUND, INDEX, MONEY_MARKET_FUND, BOND, UNKNOWN, WILDCARD, MOVE, ETF, EQUITY_OPTION_ETF, EQUITY_ETF, CLOSED_END_FUND, PREFERRED, EQUITY_OPTN, EXCHANGE_TRADED_FUND, MUTUAL_FUND_MONEY_MARKET_FUND
+QuickView link
+Property	Type	Description	Possible Values
+lastTrade	number	The last trade	
+lastTradeTime	integer (int64)	The time of the last trade	
+change	number	The change	
+changePct	number	The change percentage	
+volume	integer (int64)	The total volume	
+quoteStatus	string	The quote type	REALTIME, DELAYED, CLOSING, EH_REALTIME, EH_BEFORE_OPEN, EH_CLOSED
+sevenDayCurrentYield	number (double)	The seven day current yield	
+annualTotalReturn	number (double)	The total annual return	
+weightedAverageMaturity	number (double)	The weighted average maturity	
+Totals link
+Property	Type	Description	Possible Values
+todaysGainLoss	number	Today's gain or loss	
+todaysGainLossPct	number	Today's gain or loss percentage	
+totalMarketValue	number	Today's market value	
+totalGainLoss	number	The total gain or loss	
+totalGainLossPct	number	The total gain loss percentage	
+totalPricePaid	number	The total price paid	
+cashBalance	number	The cash balance	
+Notes
+To page through a large number of items, use the count property to specify how many items to return in a group (the default is 25), and the marker property to specify the starting point (the default is the newest). For instance, a request with no count and no marker retrieves the newest 25 items. Each response includes a marker that points to the beginning of the next group. To page through all the items, repeat the request with the marker from each previous response until you receive a response with an empty marker, indicating that there are no more items.
+
+The API does not explicitly provide for bi-directional paging. Your application can support paging backward and forward either by saving and re-using markers within the series (that is, to re-issue the requests for earlier pages in the series), or saving and re-displaying the items that are returned.
+
+Example
+Get Portfolio Request URL
+content_copy
+https://api.etrade.com/v1/accounts/JDIozUumZpHdgbIjMnAAHQ/portfolio
+                
+Response
+content_copy
+                    
+<?xml version="1.0" encoding="UTF-8"?>
+<PortfolioResponse>
+   <AccountPortfolio>
+      <accountId>835547880</accountId>
+      <Position>
+         <positionId>10087531</positionId>
+         <Product>
+            <expiryDay>0</expiryDay>
+            <expiryMonth>0</expiryMonth>
+            <expiryYear>0</expiryYear>
+            <securityType>EQ</securityType>
+            <strikePrice>0</strikePrice>
+            <symbol>A</symbol>
+         </Product>
+         <symbolDescription>A</symbolDescription>
+         <dateAcquired>-68400000</dateAcquired>
+         <pricePaid>0</pricePaid>
+         <commissions>0</commissions>
+         <otherFees>0</otherFees>
+         <quantity>-120</quantity>
+         <positionIndicator>TYPE2</positionIndicator>
+         <positionType>SHORT</positionType>
+         <daysGain>190.80</daysGain>
+         <daysGainPct>2.4472</daysGainPct>
+         <marketValue>-7605.60</marketValue>
+         <totalCost>0</totalCost>
+         <totalGain>-7605.60</totalGain>
+         <totalGainPct>0</totalGainPct>
+         <pctOfPortfolio>-0.0008</pctOfPortfolio>
+         <costPerShare>0</costPerShare>
+         <todayCommissions>0</todayCommissions>
+         <todayFees>0</todayFees>
+         <todayPricePaid>0</todayPricePaid>
+         <todayQuantity>0</todayQuantity>
+         <adjPrevClose>64.970000</adjPrevClose>
+         <Quick>
+            <change>-1.59</change>
+            <changePct>-2.4472</changePct>
+            <lastTrade>63.38</lastTrade>
+            <lastTradeTime>1529429280</lastTradeTime>
+            <quoteStatus>DELAYED</quoteStatus>
+            <volume>2431617</volume>
+         </Quick>
+         <lotsDetails>https://api.etrade.com/v1/accounts/JDIozUumZpHdgbIjMnAAHQ/portfolio/10087531</lotsDetails>
+         <quoteDetails>https://api.etrade.com/v1/market/quote/A</quoteDetails>
+      </Position>
+      <Position>
+         <positionId>140357348131</positionId>
+         <Product>
+            <expiryDay>0</expiryDay>
+            <expiryMonth>0</expiryMonth>
+            <expiryYear>0</expiryYear>
+            <securityType>EQ</securityType>
+            <strikePrice>0</strikePrice>
+            <symbol>TWTR</symbol>
+         </Product>
+         <symbolDescription>TWTR</symbolDescription>
+         <dateAcquired>-68400000</dateAcquired>
+         <pricePaid>0</pricePaid>
+         <commissions>0</commissions>
+         <otherFees>0</otherFees>
+         <quantity>3</quantity>
+         <positionIndicator>TYPE2</positionIndicator>
+         <positionType>LONG</positionType>
+         <daysGain>-3.915</daysGain>
+         <daysGainPct>-2.8369</daysGainPct>
+         <marketValue>134.085</marketValue>
+         <totalCost>0</totalCost>
+         <totalGain>134.085</totalGain>
+         <totalGainPct>0</totalGainPct>
+         <pctOfPortfolio>0.0235</pctOfPortfolio>
+         <costPerShare>0</costPerShare>
+         <todayCommissions>0</todayCommissions>
+         <todayFees>0</todayFees>
+         <todayPricePaid>0</todayPricePaid>
+         <todayQuantity>0</todayQuantity>
+         <adjPrevClose>46.000000</adjPrevClose>
+         <Quick>
+            <change>-1.305</change>
+            <changePct>-2.8369</changePct>
+            <lastTrade>44.695</lastTrade>
+            <lastTradeTime>1529429280</lastTradeTime>
+            <quoteStatus>DELAYED</quoteStatus>
+            <volume>26582141</volume>
+         </Quick>
+         <lotsDetails>https://api.etrade.com/v1/accounts/yIFaUoJ81qyAhgxLWRQ42g/portfolio/140357348131</lotsDetails>
+         <quoteDetails>https://api.etrade.com/v1/market/quote/TWTR</quoteDetails>
+      </Position>
+      <totalPages>1</totalPages>
+   </AccountPortfolio>
+</PortfolioResponse>
+                    
+                
+ETRADE Footer
+PLEASE READ THE IMPORTANT DISCLOSURES BELOW.
+By using E*TRADE API ('API') and accepting the terms of the Application Programming Interface License Agreement and the Application Programming Interface User Agreement, you agree that API may employ security policies, procedures and systems of Third Party providers which may or may not be less stringent and secure than the policies, procedures and systems of E*TRADE Securities LLC ('E*TRADE') or its affiliates. Material provided on API may have been produced by independent third parties not affiliated or endorsed by E*TRADE or its affiliates ('Third Party'). To the extent that API or Third Party providers express opinions or make recommendations, you understand that such opinions or recommendations are expressed by the Third Party provider and are not the opinions or recommendations of E*TRADE or its affiliates. E*TRADE is not responsible for the accuracy of market data displayed on API or made available by Third Party providers. There may be latency between the time an order (or other information) is submitted from API and the time the order is received by E*TRADE. The E*TRADE Two Second Execution Guarantee or any similar guarantee does not apply for orders placed through API and Third Party provider web sites. The E*TRADE CompleteTM Protection Guarantee does not apply. Orders created and submitted through API are not vetted until they are received by E*TRADE. It is possible that E*TRADE may reject an order placed through API. Please see the Application Programming Interface License Agreement and the Application Programming Interface User Agreement for more information.
+Banking products and services are provided by Morgan Stanley Private Bank, National Association, Member FDIC.
+
+Securities products offered by E*TRADE Securities LLC (ETS), Member SIPC or Morgan Stanley Smith Barney LLC (MSSB), Member SIPC. Investment advisory services offered by E*TRADE Capital Management, LLC (ETCM) or MSSB. Commodity futures and options on futures products and services offered by E*TRADE Futures LLC, Member NFA. Stock plan administration solutions and services offered by E*TRADE Financial Corporate Services, Inc. Banking products and services are provided by Morgan Stanley Private Bank, National Association, Member FDIC. All entities are separate but affiliated subsidiaries of Morgan Stanley.
+
+Throughout 2023, ETS and ETCM will be transitioning existing clients to MSSB. Learn more about this transition. 
+
+System response and account access times may vary due to a variety of factors, including trading volumes, market conditions, system performance, and other factors.
+
+Statement of Financial Condition | About Asset Protection | Account Agreements and Disclosures | Quarterly 606 Report | Business Resiliency Plan | Your Privacy Choices Your Privacy Choices
+
+©2025 E*TRADE from Morgan Stanley. All rights reserved. E*TRADE Copyright Policy
+

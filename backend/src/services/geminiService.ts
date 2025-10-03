@@ -146,13 +146,14 @@ class GeminiService {
   }
 
   private buildCoveredCallPrompt(symbol: string, data: CoveredCallReportData): string {
-    let prompt = `Generate a covered call decision report for the stock ${symbol}. Include:
+    let prompt = `Generate a covered call decision report for the security represented by the symbol ${symbol}. Include:
 
     1. Perform a Google Search for the latest information on ${symbol} to ensure the report is up-to-date.
-    2. Provide a concise summary of the stock's recent performance and outlook.
-    3. Based on your search results, provide the following:
-      a) Red flag report: List any red flags such as 
-        - "going concern" language in recent SEC filings, 
+    2. Summarize the company, ETF or entity behind the symbol. What is their business model, recent news, and market position?
+    3. Provide a concise summary of the security's recent performance and outlook based on the google search results.
+    4. Based on your search results, provide the following:
+      a) Red flag report: List any red flags such as
+        - "going concern" language in recent SEC filings,
         - bankruptcy risk,
         - debt restructuring
         - insiders selling shares
@@ -163,7 +164,6 @@ class GeminiService {
       c) Three bearish reasons to be cautious about selling covered calls on this stock. Be specific to the stock itself, not generic about covered calls.
     4. Provide a link to the investor relations page and latest SEC filings.
 
-    Show all of the above in markdown table format showing two columns: "Section" and "Details".
 `;
 
     // Add contextual data from your database

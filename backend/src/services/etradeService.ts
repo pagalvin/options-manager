@@ -143,6 +143,207 @@ interface AccountInfo {
   accountStatus: string;
 }
 
+interface PortfolioPosition {
+  positionId: number;
+  accountId?: string;
+  Product: {
+    symbol: string;
+    securityType: string;
+    securitySubType?: string;
+    callPut?: string;
+    expiryYear?: number;
+    expiryMonth?: number;
+    expiryDay?: number;
+    strikePrice?: number;
+    expiryType?: string;
+    productId?: {
+      symbol: string;
+      typeCode: string;
+    };
+  };
+  osiKey?: string;
+  symbolDescription: string;
+  dateAcquired: number;
+  pricePaid: number;
+  price?: number;
+  commissions: number;
+  otherFees: number;
+  quantity: number;
+  positionIndicator: string;
+  positionType: string;
+  change?: number;
+  changePct?: number;
+  daysGain: number;
+  daysGainPct: number;
+  marketValue: number;
+  totalCost: number;
+  totalGain: number;
+  totalGainPct: number;
+  pctOfPortfolio: number;
+  costPerShare: number;
+  todayCommissions: number;
+  todayFees: number;
+  todayPricePaid: number;
+  todayQuantity: number;
+  quotestatus?: string;
+  dateTimeUTC?: number;
+  adjPrevClose: number;
+  lotsDetails?: string;
+  quoteDetails?: string;
+  Quick?: {
+    lastTrade: number;
+    lastTradeTime: number;
+    change: number;
+    changePct: number;
+    volume: number;
+    quoteStatus: string;
+    sevenDayCurrentYield?: number;
+    annualTotalReturn?: number;
+    weightedAverageMaturity?: number;
+  };
+  performance?: {
+    change: number;
+    changePct: number;
+    lastTrade: number;
+    daysGain: number;
+    totalGain: number;
+    totalGainPct: number;
+    marketValue: number;
+    quoteStatus: string;
+    lastTradeTime: number;
+  };
+  fundamental?: {
+    lastTrade: number;
+    lastTradeTime: number;
+    change: number;
+    changePct: number;
+    peRatio: number;
+    eps: number;
+    dividend: number;
+    divYield: number;
+    marketCap: number;
+    week52Range: string;
+    quoteStatus: string;
+  };
+  optionsWatch?: {
+    baseSymbolAndPrice: string;
+    premium: number;
+    lastTrade: number;
+    bid: number;
+    ask: number;
+    quoteStatus: string;
+    lastTradeTime: number;
+  };
+  complete?: {
+    priceAdjustedFlag: boolean;
+    price: number;
+    adjPrice: number;
+    change: number;
+    changePct: number;
+    prevClose: number;
+    adjPrevClose: number;
+    volume: number;
+    lastTrade: number;
+    lastTradeTime: number;
+    adjLastTrade: number;
+    symbolDescription: string;
+    perform1Month: number;
+    perform3Month: number;
+    perform6Month: number;
+    perform12Month: number;
+    prevDayVolume: number;
+    tenDayVolume: number;
+    beta: number;
+    sv10DaysAvg: number;
+    sv20DaysAvg: number;
+    sv1MonAvg: number;
+    sv2MonAvg: number;
+    sv3MonAvg: number;
+    sv4MonAvg: number;
+    sv6MonAvg: number;
+    week52High: number;
+    week52Low: number;
+    week52Range: string;
+    marketCap: number;
+    daysRange: string;
+    delta52WkHigh: number;
+    delta52WkLow: number;
+    currency: string;
+    exchange: string;
+    marginable: boolean;
+    bid: number;
+    ask: number;
+    bidAskSpread: number;
+    bidSize: number;
+    askSize: number;
+    open: number;
+    delta?: number;
+    gamma?: number;
+    ivPct?: number;
+    rho?: number;
+    theta?: number;
+    vega?: number;
+    premium?: number;
+    daysToExpiration?: number;
+    intrinsicValue?: number;
+    openInterest?: number;
+    optionsAdjustedFlag?: boolean;
+    deliverablesStr?: string;
+    optionMultiplier?: number;
+    baseSymbolAndPrice?: string;
+    estEarnings?: number;
+    eps: number;
+    peRatio: number;
+    annualDividend?: number;
+    dividend: number;
+    divYield: number;
+    divPayDate?: number;
+    exDividendDate?: number;
+    cusip?: string;
+    quoteStatus: string;
+  };
+}
+
+interface PortfolioTotals {
+  todaysGainLoss: number;
+  todaysGainLossPct: number;
+  totalMarketValue: number;
+  totalGainLoss: number;
+  totalGainLossPct: number;
+  totalPricePaid: number;
+  cashBalance: number;
+}
+
+interface AccountPortfolio {
+  accountId: string;
+  next?: string;
+  totalNoOfPages?: number;
+  totalPages?: number;
+  nextPageNo?: string;
+  Position: PortfolioPosition[];
+  position?: PortfolioPosition[];
+}
+
+interface PortfolioResponse {
+  PortfolioResponse?: {
+    Totals?: PortfolioTotals;
+    AccountPortfolio: AccountPortfolio[];
+  };
+  totals?: PortfolioTotals;
+  accountPortfolio?: AccountPortfolio[];
+}
+
+interface PortfolioOptions {
+  count?: number;
+  sortBy?: string;
+  sortOrder?: 'ASC' | 'DESC';
+  pageNumber?: number;
+  marketSession?: 'REGULAR' | 'EXTENDED';
+  totalsRequired?: boolean;
+  lotsRequired?: boolean;
+  view?: 'PERFORMANCE' | 'FUNDAMENTAL' | 'OPTIONSWATCH' | 'QUICK' | 'COMPLETE';
+}
+
 interface AccountListResponse {
   AccountListResponse?: {
     Accounts: {
@@ -904,6 +1105,75 @@ export class ETradeService {
         throw new Error(`Failed to get account list: ${error.response?.status} ${error.response?.data || error.message}`);
       }
       throw new Error('Failed to get account list from E*TRADE');
+    }
+  }
+
+  async getPortfolio(sessionId: string, accountIdKey: string, options: PortfolioOptions = {}): Promise<PortfolioResponse> {
+    try {
+      const accessToken = await this.ensureValidToken(sessionId);
+      
+      // Build URL with query parameters
+      const baseUrl = `${this.getApiBaseUrl()}/v1/accounts/${accountIdKey}/portfolio`;
+      const params = new URLSearchParams();
+      
+      if (options.count !== undefined) {
+        params.append('count', options.count.toString());
+      }
+      if (options.sortBy) {
+        params.append('sortBy', options.sortBy);
+      }
+      if (options.sortOrder) {
+        params.append('sortOrder', options.sortOrder);
+      }
+      if (options.pageNumber !== undefined) {
+        params.append('pageNumber', options.pageNumber.toString());
+      }
+      if (options.marketSession) {
+        params.append('marketSession', options.marketSession);
+      }
+      if (options.totalsRequired !== undefined) {
+        params.append('totalsRequired', options.totalsRequired.toString());
+      }
+      if (options.lotsRequired !== undefined) {
+        params.append('lotsRequired', options.lotsRequired.toString());
+      }
+      if (options.view) {
+        params.append('view', options.view);
+      }
+      
+      const url = params.toString() ? `${baseUrl}?${params.toString()}` : baseUrl;
+      const authHeader = this.createAuthHeader('GET', url, accessToken);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: authHeader
+        }
+      });
+
+      const responseData = response.data as PortfolioResponse;
+      
+      return responseData;
+    } catch (error) {
+      console.error('Error getting portfolio:', error);
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          throw new Error('Authentication failed. Please re-authenticate.');
+        }
+        if (error.response?.status === 204) {
+          // No content - empty portfolio
+          return {
+            PortfolioResponse: {
+              AccountPortfolio: [{
+                accountId: '',
+                totalPages: 0,
+                Position: []
+              }]
+            }
+          };
+        }
+        throw new Error(`Failed to get portfolio: ${error.response?.status} ${error.response?.data || error.message}`);
+      }
+      throw new Error('Failed to get portfolio from E*TRADE');
     }
   }
 

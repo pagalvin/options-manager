@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { AlertCircle, CheckCircle2, RefreshCw, TrendingUp, TrendingDown, Calendar, DollarSign, Target, Activity, Info, BarChart3, FileText } from 'lucide-react';
+import { AlertCircle, CheckCircle2, RefreshCw, TrendingUp, TrendingDown, Calendar, DollarSign, Target, Activity, Info, BarChart3, FileText, Briefcase } from 'lucide-react';
 import { FinancialLinks } from '@/components/FinancialLinks';
 import { TransactionBrowser } from '@/components/TransactionBrowser';
 import { OrderBrowser } from '@/components/OrderBrowser';
+import { ETradePositions } from '@/components/ETradePositions';
 
 interface StockQuote {
   QuoteResponse: {
@@ -153,7 +154,7 @@ export function ETradePage() {
   const [showFullChain, setShowFullChain] = useState(false);
   
   // Submenu state
-  const [activeSubmenu, setActiveSubmenu] = useState<'quotes' | 'transactions' | 'orders'>('quotes');
+  const [activeSubmenu, setActiveSubmenu] = useState<'quotes' | 'positions' | 'transactions' | 'orders'>('quotes');
   
   // Read query params (e.g., ?symbol=DVN)
   const [searchParams] = useSearchParams();
@@ -749,6 +750,19 @@ export function ETradePage() {
                   <div className="flex items-center space-x-2">
                     <BarChart3 size={16} />
                     <span>Quotes & Options</span>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setActiveSubmenu('positions')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeSubmenu === 'positions'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    <Briefcase size={16} />
+                    <span>Positions</span>
                   </div>
                 </button>
                 <button
@@ -1762,6 +1776,9 @@ export function ETradePage() {
         </div>
       )}
             </div>
+          ) : activeSubmenu === 'positions' ? (
+            /* Positions submenu */
+            <ETradePositions sessionId={sessionId!} />
           ) : activeSubmenu === 'transactions' ? (
             /* Transactions submenu */
             <TransactionBrowser />

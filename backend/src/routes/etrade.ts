@@ -358,7 +358,10 @@ router.get('/accounts', async (req, res) => {
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    const accounts = await etradeService.getAccountList(sessionId);
+    const accounts = (await etradeService.getAccountList(sessionId)).sort((a, b) => {
+      return a.accountName.localeCompare(b.accountName);
+    });
+
     res.json(accounts);
   } catch (error) {
     console.error('Error getting accounts:', error);
@@ -573,6 +576,51 @@ router.get('/accounts/:accountIdKey/orders/all', async (req, res) => {
     console.error('Error getting all account orders:', error);
     res.status(500).json({ 
       error: 'Failed to get all account orders',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Get portfolio positions for an account
+router.get('/accounts/:accountIdKey/portfolio', async (req, res) => {
+  try {
+    const { accountIdKey } = req.params;
+    const sessionId = req.headers['x-session-id'] as string;
+    const { 
+      count, 
+      sortBy, 
+      sortOrder, 
+      pageNumber, 
+      marketSession, 
+      totalsRequired, 
+      lotsRequired, 
+      view 
+    } = req.query;
+
+    if (!sessionId) {
+      return res.status(401).json({ error: 'Session ID required' });
+    }
+
+    if (!etradeService.isAuthenticated(sessionId)) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const portfolio = await etradeService.getPortfolio(sessionId, accountIdKey, {
+      count: count ? parseInt(count as string) : undefined,
+      sortBy: sortBy as string,
+      sortOrder: sortOrder as 'ASC' | 'DESC',
+      pageNumber: pageNumber ? parseInt(pageNumber as string) : undefined,
+      marketSession: marketSession as 'REGULAR' | 'EXTENDED',
+      totalsRequired: totalsRequired === 'true',
+      lotsRequired: lotsRequired === 'true',
+      view: view as 'PERFORMANCE' | 'FUNDAMENTAL' | 'OPTIONSWATCH' | 'QUICK' | 'COMPLETE'
+    });
+    
+    res.json(portfolio);
+  } catch (error) {
+    console.error('Error getting portfolio:', error);
+    res.status(500).json({ 
+      error: 'Failed to get portfolio',
       message: error instanceof Error ? error.message : 'Unknown error'
     });
   }

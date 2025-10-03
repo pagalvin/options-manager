@@ -1,5 +1,6 @@
 import express from 'express';
 import { MarginOpportunityPlannerService } from '../services/marginOpportunityPlannerService';
+import { etradeService } from '../services/etradeService';
 import pool from '../database';
 
 const router = express.Router();
@@ -85,6 +86,26 @@ router.delete('/options/:id', async (req, res) => {
   } catch (error) {
     console.error('Error deleting margin planning option:', error);
     res.status(500).json({ error: 'Failed to delete margin planning option' });
+  }
+});
+
+// Load options from ETrade
+router.post('/load-from-etrade', async (req, res) => {
+  try {
+    const sessionId = req.headers['x-session-id'] as string;
+    if (!sessionId) {
+      return res.status(401).json({ error: 'ETrade session ID not provided' });
+    }
+
+    if (!etradeService.isAuthenticated(sessionId)) {
+      return res.status(401).json({ error: 'Not authenticated with ETrade. Please authenticate first.' });
+    }
+    
+    await marginOpportunityPlannerService.loadOptionsFromETrade(sessionId);
+    res.json({ success: true, message: 'Options loaded from ETrade successfully' });
+  } catch (error) {
+    console.error('Error loading options from ETrade:', error);
+    res.status(500).json({ error: 'Failed to load options from ETrade' });
   }
 });
 

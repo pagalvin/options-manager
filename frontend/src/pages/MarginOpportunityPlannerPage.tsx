@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Target, Plus, Edit2, Trash2, Save, X } from 'lucide-react';
+import { Target, Plus, Edit2, Trash2, Save, X, Download, Calendar } from 'lucide-react';
 import {
   MarginMaster,
   MarginPlanningOption,
@@ -14,7 +14,8 @@ const MarginOpportunityPlannerPage: React.FC = () => {
   const [planningGrid, setPlanningGrid] = useState<MarginPlanningGridRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'master' | 'options' | 'planning'>('master');
+  const [activeTab, setActiveTab] = useState<'master' | 'options' | 'planning' | 'calendar'>('master');
+  const [loadingETrade, setLoadingETrade] = useState(false);
 
   // Form states
   const [editingMaster, setEditingMaster] = useState(false);
@@ -58,13 +59,13 @@ const MarginOpportunityPlannerPage: React.FC = () => {
 
       const [masterData, optionsData, gridData] = await Promise.all([
         masterRes.json(),
-        optionsRes.json(),
+        optionsRes.json(), 
         gridRes.json()
       ]);
 
       setMarginMaster(masterData);
-      setOptions(optionsData);
-      setPlanningGrid(gridData);
+      setOptions(optionsData); // Has all options
+      setPlanningGrid(gridData); // Has only non-rollable options
 
       // Initialize form with current data
       if (masterData) {
@@ -138,6 +139,44 @@ const MarginOpportunityPlannerPage: React.FC = () => {
       await fetchData(); // Refresh all data
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete option');
+    }
+  };
+
+  const handleLoadFromETrade = async () => {
+    setLoadingETrade(true);
+    setError(null);
+    
+    try {
+      // Get session ID from localStorage (should match ETrade component)
+      const sessionId = localStorage.getItem('etrade_session_id');
+      if (!sessionId) {
+        throw new Error('ETrade session not found. Please authenticate with ETrade first.');
+      }
+
+      const response = await fetch('/api/margin-opportunity-planner/load-from-etrade', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-session-id': sessionId
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to load options from ETrade');
+      }
+
+      // Refresh the options data
+      await fetchData();
+      
+      const result = await response.json();
+      alert(result.message || 'Options loaded from ETrade successfully');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load options from ETrade';
+      setError(errorMessage);
+      alert(errorMessage);
+    } finally {
+      setLoadingETrade(false);
     }
   };
 
@@ -280,7 +319,8 @@ const MarginOpportunityPlannerPage: React.FC = () => {
           {[
             { key: 'master', label: 'Margin Master', icon: Target },
             { key: 'options', label: 'Options', icon: Edit2 },
-            { key: 'planning', label: 'Planning Grid', icon: Target }
+            { key: 'planning', label: 'Planning Grid', icon: Target },
+            { key: 'calendar', label: 'Calendar View', icon: Calendar }
           ].map(({ key, label, icon: Icon }) => (
             <button
               key={key}
@@ -499,13 +539,32 @@ const MarginOpportunityPlannerPage: React.FC = () => {
           <div className="bg-white shadow rounded-lg">
             <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
               <h2 className="text-lg font-medium text-gray-900">Options</h2>
-              <button
-                onClick={() => setShowOptionForm(true)}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Option
-              </button>
+              <div className="flex space-x-2">
+                <button
+                  onClick={handleLoadFromETrade}
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700"
+                  disabled={loadingETrade}
+                >
+                  {loadingETrade ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Loading...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="h-4 w-4 mr-2" />
+                      Load from ETrade
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowOptionForm(true)}
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Option
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -525,7 +584,10 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                   {(() => {
                     // Group options by date
                     const groupedOptions = options.reduce((groups, option) => {
-                      const dateKey = option.strike_date.split('T')[0]; // Get date part only
+                      const originalDate = new Date(option.strike_date);
+                      originalDate.setDate(originalDate.getDate() + 1); // Add one day
+
+                      const dateKey = originalDate.toISOString().split('T')[0]; // Get adjusted date part
                       if (!groups[dateKey]) {
                         groups[dateKey] = [];
                       }
@@ -664,6 +726,7 @@ const MarginOpportunityPlannerPage: React.FC = () => {
             <h2 className="text-lg font-medium text-gray-900">Planning Grid</h2>
             <p className="text-sm text-gray-500 mt-1">
               Weekly margin planning based on anticipated option assignments
+              Current margin: ${marginMaster?.current_outstanding_margin?.toLocaleString() || '0'} at {marginMaster?.current_margin_rate || '0'}%
             </p>
           </div>
 
@@ -695,19 +758,26 @@ const MarginOpportunityPlannerPage: React.FC = () => {
 
                   return sortedGrid.map((row) => {
                     const hasEdits = planningGridEdits[row.week_ending];
+                    
+                    // proposed margin is planned margin for that week
+                    // If it's positive, that means I want to use margin that week
+                    // If it's negative, I expect an influx of cash by direct deposit or maybe selling some shares
                     const displayProposedMargin = String(hasEdits?.proposed_margin ?? row.proposed_margin ?? '');  // Ensure string
                     const displayNotes = hasEdits?.notes ?? row.notes ?? '';
-                    
+                     
                     // Calculate cumulative margin impact for this week:
                     // current outstanding margin - likely assignments + proposed margin + cumulative from last week
                     const currentAssignments = Number(row.likely_assignments) || 0;
                     const currentProposedMargin = Number(displayProposedMargin) || 0;
 
-                    const marginImpact2 = (currentProposedMargin + currentAssignments);
+                    // Current assignments reduce margin because they are a sale of stock
+                    // Proposed margin increases margin because it's money set aside
+                    // Margin Impact = Proposed Margin - Likely Assignments
+                    const marginImpact2 = (currentProposedMargin - currentAssignments);
 
                     // Show cumulative impact AFTER this week's changes
                     // cumulativeImpact = cumulativeImpact - currentAssignments + currentProposedMargin;
-                    cumulativeImpact = cumulativeImpact - marginImpact2;
+                    cumulativeImpact = Number(cumulativeImpact) + Number(marginImpact2);
                     // cumulativeImpact2 = Number(cumulativeImpact2) + marginImpact2;
 
                     console.log(`MarginOpportunityPlannerPage: stats:`, 
@@ -747,7 +817,7 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                           />
                         </td>
                         <td className="px-6  py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                          <span className={`font-medium ${Number(row.margin_impact) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          <span className={`font-medium ${Number(marginImpact2) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                             ${Number(marginImpact2).toLocaleString()} 
                           </span>
                         </td>
@@ -837,6 +907,290 @@ const MarginOpportunityPlannerPage: React.FC = () => {
     );
   }
 
+  const getCalendarMarkup = () => {
+    // Get current date and calculate calendar boundaries
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth();
+    
+    // Major US holidays and market closures
+    const getHolidays = (year: number) => {
+      const holidays = new Map();
+      
+      // Fixed date holidays
+      holidays.set(`${year}-0-1`, 'New Year\'s Day'); // January 1
+      holidays.set(`${year}-6-4`, 'Independence Day'); // July 4
+      holidays.set(`${year}-10-11`, 'Veterans Day'); // November 11
+      holidays.set(`${year}-11-25`, 'Christmas Day'); // December 25
+      
+      // Martin Luther King Jr. Day - 3rd Monday in January
+      const mlkDay = new Date(year, 0, 1 + (7 - new Date(year, 0, 1).getDay()) % 7 + 14);
+      holidays.set(`${year}-${mlkDay.getMonth()}-${mlkDay.getDate()}`, 'MLK Day');
+      
+      // Presidents Day - 3rd Monday in February
+      const presidentsDay = new Date(year, 1, 1 + (7 - new Date(year, 1, 1).getDay()) % 7 + 14);
+      holidays.set(`${year}-${presidentsDay.getMonth()}-${presidentsDay.getDate()}`, 'Presidents Day');
+      
+      // Memorial Day - Last Monday in May
+      const memorialDay = new Date(year, 4, 31);
+      memorialDay.setDate(31 - (memorialDay.getDay() + 6) % 7);
+      holidays.set(`${year}-${memorialDay.getMonth()}-${memorialDay.getDate()}`, 'Memorial Day');
+      
+      // Labor Day - 1st Monday in September
+      const laborDay = new Date(year, 8, 1 + (7 - new Date(year, 8, 1).getDay()) % 7);
+      holidays.set(`${year}-${laborDay.getMonth()}-${laborDay.getDate()}`, 'Labor Day');
+      
+      // Thanksgiving - 4th Thursday in November
+      const thanksgiving = new Date(year, 10, 1);
+      thanksgiving.setDate(1 + (4 - thanksgiving.getDay() + 7) % 7 + 21);
+      holidays.set(`${year}-${thanksgiving.getMonth()}-${thanksgiving.getDate()}`, 'Thanksgiving');
+      
+      // Black Friday - Day after Thanksgiving (half day)
+      const blackFriday = new Date(thanksgiving);
+      blackFriday.setDate(thanksgiving.getDate() + 1);
+      holidays.set(`${year}-${blackFriday.getMonth()}-${blackFriday.getDate()}`, 'Black Friday (Half Day)');
+      
+      // Good Friday (varies each year - simplified calculation)
+      // This is an approximation - in practice you'd use a more precise Easter calculation
+      const goodFriday = new Date(year, 3, 15); // Approximate, varies each year
+      holidays.set(`${year}-${goodFriday.getMonth()}-${goodFriday.getDate()}`, 'Good Friday');
+      
+      return holidays;
+    };
+    
+    const holidays = getHolidays(currentYear);
+    
+    // Group options by month
+    const optionsByMonth = options.reduce((acc, option) => {
+      const optionDate = new Date(option.strike_date);
+      const monthKey = `${optionDate.getFullYear()}-${optionDate.getMonth()}`;
+      if (!acc[monthKey]) {
+        acc[monthKey] = [];
+      }
+      acc[monthKey].push(option);
+      return acc;
+    }, {} as Record<string, typeof options>);
+
+    // Generate months to display (current month + next 3 months)
+    const monthsToShow = [];
+    for (let i = 0; i < 4; i++) {
+      const date = new Date(currentYear, currentMonth + i, 1);
+      monthsToShow.push({
+        year: date.getFullYear(),
+        month: date.getMonth(),
+        monthKey: `${date.getFullYear()}-${date.getMonth()}`,
+        monthName: date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      });
+    }
+
+    const getDaysInMonth = (year: number, month: number) => {
+      return new Date(year, month + 1, 0).getDate();
+    };
+
+    const getFirstDayOfMonth = (year: number, month: number) => {
+      return new Date(year, month, 1).getDay();
+    };
+
+    const getOptionsForDate = (year: number, month: number, day: number) => {
+      const dateStr = new Date(year, month, day).toISOString().split('T')[0];
+      return options.filter(option => option.strike_date.split('T')[0] === dateStr);
+    };
+
+    const isToday = (year: number, month: number, day: number) => {
+      const date = new Date(year, month, day);
+      return date.toDateString() === today.toDateString();
+    };
+
+    const isPastDate = (year: number, month: number, day: number) => {
+      const date = new Date(year, month, day);
+      return date < today;
+    };
+
+    const isWeekend = (year: number, month: number, day: number) => {
+      const date = new Date(year, month, day);
+      const dayOfWeek = date.getDay();
+      return dayOfWeek === 0 || dayOfWeek === 6; // Sunday = 0, Saturday = 6
+    };
+
+    const getHoliday = (year: number, month: number, day: number) => {
+      return holidays.get(`${year}-${month}-${day}`);
+    };
+
+    return (
+      <div className="bg-white shadow rounded-lg">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h2 className="text-lg font-medium text-gray-900">Calendar View - Option Expirations</h2>
+          <p className="text-sm text-gray-500 mt-1">View your option expirations by month • Market holidays shown in red</p>
+        </div>
+
+        <div className="p-6">
+          {monthsToShow.map(({ year, month, monthKey, monthName }) => {
+            const monthOptions = optionsByMonth[monthKey] || [];
+            const daysInMonth = getDaysInMonth(year, month);
+            const firstDay = getFirstDayOfMonth(year, month);
+            
+            // Create calendar grid
+            const calendarDays = [];
+            
+            // Add empty cells for days before the first day of the month
+            for (let i = 0; i < firstDay; i++) {
+              calendarDays.push(null);
+            }
+            
+            // Add all days of the month
+            for (let day = 1; day <= daysInMonth; day++) {
+              calendarDays.push(day);
+            }
+
+            return (
+              <div key={monthKey} className="mb-8">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">{monthName}</h3>
+                <div className="grid grid-cols-7 gap-1 mb-4">
+                  {/* Day headers */}
+                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => (
+                    <div key={day} className={`p-2 text-center text-sm font-medium border-b ${
+                      index === 0 || index === 6 ? 'text-blue-600 bg-blue-50' : 'text-gray-500'
+                    }`}>
+                      {day}
+                    </div>
+                  ))}
+                  
+                  {/* Calendar days */}
+                  {calendarDays.map((day, index) => {
+                    if (day === null) {
+                      return <div key={index} className="p-1 h-28"></div>;
+                    }
+                    
+                    const dayOptions = getOptionsForDate(year, month, day);
+                    const hasOptions = dayOptions.length > 0;
+                    const isTodayDate = isToday(year, month, day);
+                    const isPast = isPastDate(year, month, day);
+                    const isWeekendDay = isWeekend(year, month, day);
+                    const holiday = getHoliday(year, month, day);
+                    
+                    let backgroundClass = 'bg-white';
+                    let borderClass = 'border-gray-200';
+                    let textClass = 'text-gray-900';
+                    
+                    if (isTodayDate) {
+                      backgroundClass = 'bg-blue-100';
+                      borderClass = 'border-blue-400';
+                      textClass = 'text-blue-700';
+                    } else if (holiday) {
+                      backgroundClass = 'bg-red-50';
+                      borderClass = 'border-red-300';
+                      textClass = 'text-red-700';
+                    } else if (isWeekendDay) {
+                      backgroundClass = 'bg-gray-100';
+                      textClass = 'text-gray-600';
+                    } else if (isPast) {
+                      backgroundClass = 'bg-gray-50';
+                      textClass = 'text-gray-400';
+                    }
+                    
+                    if (hasOptions) {
+                      borderClass = 'border-orange-400 border-2';
+                      if (!isTodayDate && !holiday) {
+                        backgroundClass = 'bg-orange-50';
+                      }
+                    }
+                    
+                    return (
+                      <div
+                        key={day}
+                        className={`p-1 h-28 border ${backgroundClass} ${borderClass} relative flex flex-col`}
+                      >
+                        <div className={`text-sm font-medium ${textClass} mb-1`}>
+                          {day}
+                        </div>
+                        
+                        {holiday && (
+                          <div className="text-xs text-red-600 font-medium mb-1 leading-tight" title={holiday}>
+                            {holiday.length > 12 ? holiday.substring(0, 12) + '...' : holiday}
+                          </div>
+                        )}
+                        
+                        {hasOptions && (
+                          <div className="flex-1 overflow-hidden">
+                            <div className="space-y-0.5 h-full overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+                              {dayOptions.slice(0, 10).map((option, idx) => (
+                                <div
+                                  key={idx}
+                                  className="text-xs bg-orange-200 text-orange-900 px-1 py-0.5 rounded truncate leading-tight"
+                                  title={`${option.symbol} $${option.strike_price} (${option.total_contracts} contracts)${option.rollable ? ' - Rollable' : ''}`}
+                                >
+                                  {option.symbol} ${option.strike_price}
+                                  {option.total_contracts > 1 && ` (${option.total_contracts})`}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                
+                {/* Monthly summary */}
+                {monthOptions.length > 0 && (
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <h4 className="text-sm font-medium text-gray-900 mb-2">
+                      {monthName} Summary ({monthOptions.length} options expiring)
+                    </h4>
+                    <div className="text-sm text-gray-600 space-y-1">
+                      <div>Total Contracts: {monthOptions.reduce((sum, opt) => sum + opt.total_contracts, 0)}</div>
+                      <div>Total Strike Value: ${monthOptions.reduce((sum, opt) => sum + (opt.strike_price * opt.total_contracts * 100), 0).toLocaleString()}</div>
+                      <div>Symbols: {[...new Set(monthOptions.map(opt => opt.symbol))].join(', ')}</div>
+                      <div>Rollable: {monthOptions.filter(opt => opt.rollable).length} | Non-rollable: {monthOptions.filter(opt => !opt.rollable).length}</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          
+          {options.length === 0 && (
+            <div className="text-center py-8">
+              <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-500">No options found. Add some options or load from ETrade to see the calendar view.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Legend */}
+        <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
+          <h4 className="text-sm font-medium text-gray-900 mb-3">Legend</h4>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 text-xs">
+            <div className="flex items-center space-x-2">
+              <div className="w-4 h-4 bg-blue-100 border border-blue-400 rounded"></div>
+              <span>Today</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="w-4 h-4 bg-gray-100 border border-gray-200 rounded"></div>
+              <span>Weekend</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="w-4 h-4 bg-red-50 border border-red-300 rounded"></div>
+              <span>Market Holiday</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="w-4 h-4 bg-orange-50 border-2 border-orange-400 rounded"></div>
+              <span>Options Expire</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="w-4 h-4 bg-gray-50 border border-gray-200 rounded"></div>
+              <span>Past Date</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="w-2 h-4 bg-gray-300 rounded"></div>
+              <span>Scroll for more</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -856,6 +1210,10 @@ const MarginOpportunityPlannerPage: React.FC = () => {
 
       {activeTab === 'planning' && (
         getPlanningMarkup()
+      )}
+
+      {activeTab === 'calendar' && (
+        getCalendarMarkup()
       )}
     </div>
   );
