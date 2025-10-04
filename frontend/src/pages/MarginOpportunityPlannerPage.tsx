@@ -15,6 +15,7 @@ const MarginOpportunityPlannerPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'master' | 'options' | 'planning' | 'calendar'>('master');
+  const [planningSubTab, setPlanningSubTab] = useState<'current-future' | 'past'>('current-future');
   const [loadingETrade, setLoadingETrade] = useState(false);
 
   // Form states
@@ -123,6 +124,36 @@ const MarginOpportunityPlannerPage: React.FC = () => {
       resetOptionForm();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save option');
+    }
+  };
+
+  const handleToggleRollable = async (option: MarginPlanningOption) => {
+    // Optimistically update the local state immediately
+    const updatedOptions = options.map(opt => 
+      opt.id === option.id 
+        ? { ...opt, rollable: !opt.rollable }
+        : opt
+    );
+    setOptions(updatedOptions);
+
+    try {
+      const response = await fetch(`/api/margin-opportunity-planner/options/${option.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...option,
+          rollable: !option.rollable
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed to update rollable status');
+
+      // Only refresh planning grid since rollable status affects margin calculations
+      await fetchPlanningGrid();
+    } catch (err) {
+      // Revert the optimistic update on error
+      setOptions(options);
+      setError(err instanceof Error ? err.message : 'Failed to update rollable status');
     }
   };
 
@@ -640,12 +671,24 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                               ${(option.strike_price * option.total_contracts * 100).toLocaleString()}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
-                              <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                                option.rollable 
-                                  ? 'bg-green-100 text-green-800' 
-                                  : 'bg-red-100 text-red-800'
-                              }`}>
-                                {option.rollable ? 'Yes' : 'No'}
+                              <button
+                                onClick={() => handleToggleRollable(option)}
+                                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                                  option.rollable ? 'bg-green-600' : 'bg-gray-200'
+                                }`}
+                                role="switch"
+                                aria-checked={option.rollable}
+                                title={option.rollable ? 'Rollable - Click to mark as non-rollable' : 'Non-rollable - Click to mark as rollable'}
+                              >
+                                <span className="sr-only">Toggle rollable status</span>
+                                <span
+                                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                    option.rollable ? 'translate-x-5' : 'translate-x-0'
+                                  }`}
+                                />
+                              </button>
+                              <span className="ml-2 text-xs text-gray-500">
+                                {option.rollable ? 'Rollable' : 'Non-rollable'}
                               </span>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
@@ -720,6 +763,20 @@ const MarginOpportunityPlannerPage: React.FC = () => {
   }
 
   const getPlanningMarkup = () => {
+    // Split planning grid data based on current date
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Reset to start of day for accurate comparison
+    
+    const currentFutureWeeks = planningGrid.filter(row => {
+      const weekEndingDate = new Date(row.week_ending);
+      return weekEndingDate >= today;
+    });
+    
+    const pastWeeks = planningGrid.filter(row => {
+      const weekEndingDate = new Date(row.week_ending);
+      return weekEndingDate < today;
+    });
+
     return (
         <div className="bg-white shadow rounded-lg">
           <div className="px-6 py-4 border-b border-gray-200">
@@ -728,33 +785,66 @@ const MarginOpportunityPlannerPage: React.FC = () => {
               Weekly margin planning based on anticipated option assignments
               Current margin: ${marginMaster?.current_outstanding_margin?.toLocaleString() || '0'} at {marginMaster?.current_margin_rate || '0'}%
             </p>
+            
+            {/* Sub-tabs for Current/Future vs Past */}
+            <div className="mt-4 border-b border-gray-200">
+              <nav className="-mb-px flex space-x-8">
+                <button
+                  onClick={() => setPlanningSubTab('current-future')}
+                  className={`${
+                    planningSubTab === 'current-future'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  } whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm`}
+                >
+                  Current and Future Weeks ({currentFutureWeeks.length})
+                </button>
+                <button
+                  onClick={() => setPlanningSubTab('past')}
+                  className={`${
+                    planningSubTab === 'past'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  } whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm`}
+                >
+                  Past Weeks ({pastWeeks.length})
+                </button>
+              </nav>
+            </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Week Ending</th>
-                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbols (Non-Rollable)</th>
-                  <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Likely Assignments</th>
-                  <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Proposed Margin</th>
-                  <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Margin Impact</th>
-                  <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cumulative Margin Impact</th>
-                  <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Weekly Margin Cost</th>
-                  <th className="px-2 py-3 text-left text-xs w-96 font-medium text-gray-500 uppercase tracking-wider">Notes</th>
-                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {(() => {
-                  // Sort planning grid by week ending date
-                  const sortedGrid = [...planningGrid].sort((a, b) => 
-                    new Date(a.week_ending).getTime() - new Date(b.week_ending).getTime()
-                  );
-                  
-                  // Start with current outstanding margin as the base
-                  let cumulativeImpact = marginMaster?.current_outstanding_margin || 0;
-                  let cumulativeImpact2: number = marginMaster?.current_outstanding_margin || 0;
+          {(() => {
+            // Get data based on selected sub-tab
+            const dataToShow = planningSubTab === 'current-future' ? currentFutureWeeks : pastWeeks;
+            
+            // Sort planning grid by week ending date
+            const sortedGrid = [...dataToShow].sort((a, b) => {
+              const dateComparison = new Date(a.week_ending).getTime() - new Date(b.week_ending).getTime();
+              // For past weeks, show most recent first (reverse chronological)
+              return planningSubTab === 'past' ? -dateComparison : dateComparison;
+            });
+
+            return (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Week Ending</th>
+                      <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbols (Non-Rollable)</th>
+                      <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Likely Assignments</th>
+                      <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Proposed Margin</th>
+                      <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Margin Impact</th>
+                      <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cumulative Margin Impact</th>
+                      <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Weekly Margin Cost</th>
+                      <th className="px-2 py-3 text-left text-xs w-96 font-medium text-gray-500 uppercase tracking-wider">Notes</th>
+                      <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {(() => {
+                      // Start with current outstanding margin as the base
+                      let cumulativeImpact = marginMaster?.current_outstanding_margin || 0;
+                      let cumulativeImpact2: number = marginMaster?.current_outstanding_margin || 0;
 
                   return sortedGrid.map((row) => {
                     const hasEdits = planningGridEdits[row.week_ending];
@@ -863,15 +953,23 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                       </tr>
                     );
                   });
-                })()}
-              </tbody>
-            </table>
-            {planningGrid.length === 0 && (
-              <div className="text-center py-12">
-                <p className="text-gray-500">No weeks with option expirations found. Add some options first.</p>
+                    })()}
+                  </tbody>
+                </table>
+                {sortedGrid.length === 0 && (
+                  <div className="text-center py-12">
+                    <p className="text-gray-500">
+                      {planningSubTab === 'current-future' 
+                        ? 'No current or future weeks with option expirations found.' 
+                        : 'No past weeks with option expirations found.'
+                      }
+                      {planningGrid.length === 0 && ' Add some options first.'}
+                    </p>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            );
+          })()}
 
           {/* Help Text Section */}
           <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
