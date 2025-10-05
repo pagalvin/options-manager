@@ -52,6 +52,9 @@ export function OptionsAnalyzer() {
   const [updatingStrategyFor, setUpdatingStrategyFor] = useState<string | null>(null);
   const [isChatOpen, setIsChatOpen] = useState<boolean>(false);
   const [chatSymbol, setChatSymbol] = useState<string | undefined>(undefined);
+  const [isUpdatingAllStrategies, setIsUpdatingAllStrategies] = useState<boolean>(false);
+  const [updatingStrategiesMessage, setUpdatingStrategiesMessage] = useState<string>('');
+
   const [formData, setFormData] = useState<FormData>({
     security: '',
     market_price: '',
@@ -350,6 +353,29 @@ export function OptionsAnalyzer() {
           // Sort by net gain when margined percent
           aValue = calculateNetGainWhenMargined(a.lots || null, a.market_price || null, a.strike_price || null, a.premium_per_contract || null, a.option_date || null) || -999999;
           bValue = calculateNetGainWhenMargined(b.lots || null, b.market_price || null, b.strike_price || null, b.premium_per_contract || null, b.option_date || null) || -999999;
+          return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+        case 'strike_hit_probability':
+          // Sort by strike hit probability
+          const aDaysToExpiration = calculateDaysFromToday(a.option_date || null);
+          const aProbability = calculateStrikeProbability(
+            a.market_price || null,
+            a.strike_price || null,
+            a.implied_volatility || null,
+            aDaysToExpiration,
+            a.delta || null,
+            a.next_earnings_date || null
+          );
+          const bDaysToExpiration = calculateDaysFromToday(b.option_date || null);
+          const bProbability = calculateStrikeProbability(
+            b.market_price || null,
+            b.strike_price || null,
+            b.implied_volatility || null,
+            bDaysToExpiration,
+            b.delta || null,
+            b.next_earnings_date || null
+          );
+          aValue = aProbability || -999999;
+          bValue = bProbability || -999999;
           return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
         default:
           return 0;
@@ -655,9 +681,11 @@ export function OptionsAnalyzer() {
         return;
       }
 
+      setIsUpdatingAllStrategies(true);
       for (const entry of entries) {
 
         console.log(`Updating strategy for ${entry.security}...`);
+        setUpdatingStrategiesMessage(`Updating strategy for ${entry.security}...`);
 
         try {
           await updateStrategyForEntry(entry);
@@ -670,7 +698,11 @@ export function OptionsAnalyzer() {
         await new Promise(resolve => setTimeout(resolve, 250));
 
       }
-
+      
+      // Refresh all entries once at the end instead of after each update
+      await fetchEntries();
+      
+      setIsUpdatingAllStrategies(false);
       setUpdatingStrategy(false);
     } catch (err) {
       console.error('Error updating strategies:', err);
@@ -725,6 +757,12 @@ export function OptionsAnalyzer() {
         return;
       }
 
+      if (! entry.lots) { entry.lots = 0; } // treat null as 0 for toggling
+      if (entry.lots === 0) { entry.lots = 1; }
+
+      console.log(`OptionsAnalyzer.tsx: updateStrategyForEntry: chosen strategy for ${symbol}:`, chosen);
+      console.log(`OptionsAnalyzer.tsx: updateStrategyForEntry: setting lots to: ${entry.lots}.`);
+
       // Update the entry directly
       const optionDate = `${chosen.year}-${String(chosen.month).padStart(2, '0')}-${String(chosen.day).padStart(2, '0')}`;
       const updatedEntry = {
@@ -736,7 +774,7 @@ export function OptionsAnalyzer() {
         next_earnings_date: nextEarningsDate,
         implied_volatility: chosen.impliedVolatility ? Number(clampImpliedVolatility(chosen.impliedVolatility)?.toFixed(2)) : null, // Convert to percentage and clamp
         delta: chosen.delta ? Number(clampDelta(chosen.delta)?.toFixed(4)) : null, // Clamp and store Delta from E*TRADE
-        lots: (entry.lots && entry.lots > 0) ? 0 : 1 // Toggle: set to 1 if zero, set to 0 if > 0
+        // lots: (entry.lots && entry.lots > 0) ? 0 : 1 // Toggle: set to 1 if zero, set to 0 if > 0
       };
 
       // Save the updated entry
@@ -752,7 +790,11 @@ export function OptionsAnalyzer() {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      await fetchEntries();
+      // Only refresh entries if this is not part of a batch update
+      if (!isUpdatingAllStrategies) {
+        await fetchEntries();
+      }
+      
       setError(null);
     } catch (err) {
       console.error('Error updating strategy for entry:', err);
@@ -811,6 +853,10 @@ export function OptionsAnalyzer() {
         setFormData(prev => ({ ...prev, company_name: q?.All?.companyName }));
       }
 
+      if (formData.lots.trim().length < 1 || isNaN(Number(formData.lots)) || Number(formData.lots) < 0) {
+        setFormData(prev => ({ ...prev, lots: '1' }));
+      }
+      
       try {
       if (formData.ex_dividend_date.trim().length < 1 && q?.All?.exDividendDate && q?.All?.exDividendDate?.trim().length > 0) {
         const exDividendDateAsDate = new Date(q?.All?.exDividendDate);
@@ -838,6 +884,7 @@ export function OptionsAnalyzer() {
         option_date: optionDate,
         strike_price: chosen.strikePrice.toFixed(2),
         premium_per_contract: chosen.premium.toFixed(2),
+        lots: prev.lots && !isNaN(Number(prev.lots)) && Number(prev.lots) > 0 ? prev.lots : '1', // default to 1 if empty/invalid
         implied_volatility: chosen.impliedVolatility ? clampImpliedVolatility(chosen.impliedVolatility)?.toFixed(2) || '' : '', // Convert to percentage and clamp
         delta: chosen.delta ? clampDelta(chosen.delta)?.toFixed(4) || '' : '', // Clamp and store Delta from E*TRADE
       }));
@@ -1194,6 +1241,14 @@ export function OptionsAnalyzer() {
         </div>
       )}
 
+      {isUpdatingAllStrategies && (
+        <div className="bg-yellow-100 text-yellow-800 p-3 rounded flex items-center space-x-2">
+          <RefreshCw className="animate-spin" size={16} />
+          <span>{updatingStrategiesMessage}</span>
+        </div>
+      )}
+
+
       {/* Entries Table */}
       <div className="bg-white p-6 rounded-lg shadow">
         <h2 className="text-xl font-semibold mb-2">
@@ -1331,8 +1386,18 @@ export function OptionsAnalyzer() {
                       )}
                     </div>
                   </th>
-                  <th className={`${baseHeaderRowStyles} text-right text-xs font-medium text-gray-500 uppercase tracking-wider`}>
-                    Strike Hit Probability
+                  <th 
+                    className={`${baseHeaderRowStyles} text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100`}
+                    onClick={() => handleSort('strike_hit_probability')}
+                  >
+                    <div className="flex items-center justify-end space-x-1">
+                      <span>Strike Hit Probability</span>
+                      {sortColumn === 'strike_hit_probability' && (
+                        <span className="text-blue-600">
+                          {sortDirection === 'asc' ? '↑' : '↓'}
+                        </span>
+                      )}
+                    </div>
                   </th>
                   <th className={`${baseHeaderRowStyles} text-left text-xs font-medium text-gray-500 uppercase tracking-wider`}>
                     Next Earnings

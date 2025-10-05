@@ -17,6 +17,7 @@ import { ChatPage } from './pages/ChatPage';
 import { MarginAnalysisPage } from './pages/MarginAnalysis';
 import PremiumCashFlow from './pages/PremiumCashFlow';
 import MarginOpportunityPlannerPage from './pages/MarginOpportunityPlannerPage';
+import { StockSnapshotPage } from './pages/StockSnapshot';
 
 function App() {
   // Timer to fetch AAPL price every hour to keep E*TRADE API session active
@@ -97,6 +98,7 @@ function App() {
             <Route path="/analyzer" element={<OptionsAnalyzer />} />
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/chat/covered-call-report/:symbol" element={<ChatPage />} />
+            <Route path="/stock-snapshot" element={<StockSnapshotPage />} />
             <Route path="/etrade" element={<ETradePage />} />
             <Route path="/admin" element={<Admin />} />
           </Routes>

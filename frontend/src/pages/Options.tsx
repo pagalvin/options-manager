@@ -1,9 +1,10 @@
 import { FinancialLinks } from "@/components/FinancialLinks";
 import { getLastThreeMonthsNames, getMonday, getNextSunday } from "@/helpers/dateHelper";
 import transactionsService, { Transaction } from "@/services/transactionsService";
+import { returnOnCapitalService, ReturnOnCapitalPieChartData, ReturnOnCapitalBarChartData, AggregatedReturnOnCapitalData } from "@/services/returnOnCapitalService";
 import { useState, useEffect } from "react";
 import { calculateOpenOptions } from "@/lib/utils";
-import { AlertTriangle, AlertCircle, BarChart3, TrendingUp, PieChart, Target } from 'lucide-react';
+import { AlertTriangle, AlertCircle, BarChart3, TrendingUp, PieChart, Target, DollarSign } from 'lucide-react';
 
 
 interface OptionAnalysis {
@@ -43,6 +44,13 @@ export function Options() {
         key: keyof OptionAnalysis;
         direction: "asc" | "desc";
     } | null>(null);
+
+    // Return on Capital state
+    const [rocPieChartData, setRocPieChartData] = useState<ReturnOnCapitalPieChartData[]>([]);
+    const [rocBarChartData, setRocBarChartData] = useState<ReturnOnCapitalBarChartData[]>([]);
+    const [rocAggregatedData, setRocAggregatedData] = useState<AggregatedReturnOnCapitalData | null>(null);
+    const [rocLoading, setRocLoading] = useState(false);
+    const [rocError, setRocError] = useState<string | null>(null);
 
     // Helper function to calculate days to earnings
     const calculateDaysToEarnings = (earningsDate: string | null): number | null => {
@@ -120,8 +128,17 @@ export function Options() {
     };
 
     // Helper function to format numbers with commas
-    const formatNumber = (num: number, decimals: number = 2): string => {
-        return num.toLocaleString("en-US", {
+    const formatNumber = (num: number | undefined | null, decimals: number = 2): string => {
+        if (num === undefined || num === null || isNaN(num)) {
+            return '0';
+        }
+
+        // console.log(`Formatting number: ${num} with ${decimals} decimals.`);
+
+        const xxx = Number(num);
+        
+
+        return xxx.toLocaleString("en-US", {
             minimumFractionDigits: decimals,
             maximumFractionDigits: decimals,
         });
@@ -185,6 +202,31 @@ export function Options() {
             setError("Failed to fetch all transactions");
         } finally {
             setLoading(false);
+        }
+    }
+
+    // Fetch Return on Capital data
+    const fetchReturnOnCapitalData = async () => {
+        try {
+            console.log("🔄 Fetching Return on Capital data...");
+            setRocLoading(true);
+            setRocError(null);
+            
+            const [pieData, barData, aggregatedData] = await Promise.all([
+                returnOnCapitalService.getReturnOnCapitalPieChartData(),
+                returnOnCapitalService.getReturnOnCapitalBarChartData(),
+                returnOnCapitalService.getAggregatedReturnOnCapital()
+            ]);
+
+            console.log("📊 RoC Data received:", { pieData, barData, aggregatedData });
+            setRocPieChartData(pieData);
+            setRocBarChartData(barData);
+            setRocAggregatedData(aggregatedData);
+        } catch (err) {
+            console.error("❌ Error fetching Return on Capital data:", err);
+            setRocError("Failed to fetch Return on Capital data");
+        } finally {
+            setRocLoading(false);
         }
     }
 
@@ -478,6 +520,7 @@ export function Options() {
 
     useEffect(() => {
         fetchTransactions();
+        fetchReturnOnCapitalData();
     }, []);
 
     useEffect(() => {
@@ -614,6 +657,7 @@ export function Options() {
                                 const formattedValue = title.includes('Monthly') ? `$${formatNumber(item.value)}` : 
                                                      title.includes('ROI') ? `${formatNumber(item.value, 1)}%` : 
                                                      title.includes('Exposure') ? `$${formatNumber(item.value)}` : 
+                                                     title.includes('Return on Capital') ? `${formatNumber(item.value)}%` :
                                                      `$${formatNumber(item.value)}`;
                                 
                                 return (
@@ -715,7 +759,7 @@ export function Options() {
                                                 className={`h-6 rounded-full ${isPositive ? 'bg-green-500' : 'bg-red-500'}`}
                                                 style={{ width: `${width}%` }}
                                             />
-                                            <span className="absolute inset-0 flex items-center justify-center text-xs font-medium text-white">
+                                            <span className="absolute inset-0 flex items-center justify-center text-xs font-medium text-black">
                                                 ${formatNumber(analysis.netPremiumAllTime)}
                                             </span>
                                         </div>
@@ -727,7 +771,7 @@ export function Options() {
                         {/* Pie Chart */}
                         <div className="flex justify-center">
                             {createPieChart(
-                                topPerformers.slice(0, 10).map((analysis, index) => ({
+                                topPerformers.slice(0, 30).map((analysis, index) => ({
                                     label: analysis.symbol,
                                     value: Math.abs(analysis.netPremiumAllTime),
                                     color: generateColors(10)[index]
@@ -759,7 +803,7 @@ export function Options() {
                                                 className="h-5 rounded-full bg-blue-500"
                                                 style={{ width: `${percentage}%` }}
                                             />
-                                            <span className="absolute inset-0 flex items-center justify-center text-xs font-medium text-white">
+                                            <span className="absolute inset-0 flex items-center justify-center text-xs font-medium text-black">
                                                 {formatNumber(percentage, 1)}%
                                             </span>
                                         </div>
@@ -807,7 +851,7 @@ export function Options() {
                                                 className={`h-5 rounded-full ${isPositive ? 'bg-green-500' : 'bg-red-500'}`}
                                                 style={{ width: `${width}%` }}
                                             />
-                                            <span className="absolute inset-0 flex items-center justify-center text-xs font-medium text-white">
+                                            <span className="absolute inset-0 flex items-center justify-center text-xs font-medium text-black">
                                                 {formatNumber(analysis.maxAnnualizedROI, 1)}%
                                             </span>
                                         </div>
@@ -922,6 +966,176 @@ export function Options() {
                             })()}
                         </div>
                     </div>
+                </div>
+
+                {/* Return on Capital Analysis */}
+                <div className="bg-white p-6 rounded-lg shadow">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-semibold flex items-center">
+                            <DollarSign className="mr-2 text-green-600" size={20} />
+                            Return on Capital Analysis (Last 12 Months)
+                        </h3>
+                        <button 
+                            onClick={fetchReturnOnCapitalData}
+                            className="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600"
+                            disabled={rocLoading}
+                        >
+                            {rocLoading ? 'Loading...' : 'Refresh'}
+                        </button>
+                    </div>
+                    
+                    {rocLoading ? (
+                        <div className="text-center py-8 text-gray-500">
+                            Loading Return on Capital data...
+                        </div>
+                    ) : rocError ? (
+                        <div className="bg-red-50 text-red-700 p-4 rounded-lg mb-4">
+                            {rocError}
+                        </div>
+                    ) : (
+                        <>
+                            {/* RoC Summary Stats */}
+                            {rocAggregatedData && (
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                                    <div className="text-center p-4 bg-green-50 rounded-lg">
+                                        <div className="text-2xl font-bold text-green-600">
+                                            {formatNumber(rocAggregatedData?.overallReturnOnCapital ?? 0, 2 )}%
+                                        </div>
+                                        <div className="text-sm text-gray-600">Overall RoC</div>
+                                    </div>
+                                    <div className="text-center p-4 bg-blue-50 rounded-lg">
+                                        <div className="text-2xl font-bold text-blue-600">
+                                            ${formatNumber(rocAggregatedData?.totalPremiumCollected ?? 0)}
+                                        </div>
+                                        <div className="text-sm text-gray-600">Total Premium</div>
+                                    </div>
+                                    <div className="text-center p-4 bg-purple-50 rounded-lg">
+                                        <div className="text-2xl font-bold text-purple-600">
+                                            ${formatNumber(rocAggregatedData?.totalCapitalInvested ?? 0)}
+                                        </div>
+                                        <div className="text-sm text-gray-600">Capital Invested</div>
+                                    </div>
+                                    <div className="text-center p-4 bg-orange-50 rounded-lg">
+                                        <div className="text-2xl font-bold text-orange-600">
+                                            {rocAggregatedData?.numberOfPositions ?? 0}
+                                        </div>
+                                        <div className="text-sm text-gray-600">Active Positions</div>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="grid grid-cols-2 gap-6">
+                                {/* RoC Bar Chart (Left Side) */}
+                                <div className="space-y-3">
+                                    <h4 className="text-sm font-medium mb-4 text-center">Monthly RoC Trend</h4>
+                                    {rocBarChartData && rocBarChartData.length > 0 ? rocBarChartData.slice(0, 12).map((item, index) => {
+                                        const maxRoC = Math.max(...rocBarChartData.map(d => Math.abs(parseFloat(String(d?.returnOnCapital ?? 0)))));
+                                        const returnOnCapital = parseFloat(String(item?.returnOnCapital ?? 0));
+                                        const width = maxRoC > 0 ? Math.abs(returnOnCapital) / maxRoC * 100 : 0;
+                                        const isPositive = returnOnCapital >= 0;
+                                        
+                                        return (
+                                            <div key={`${item?.period ?? 'unknown'}-${index}`} className="flex items-center space-x-3">
+                                                <span className="text-sm font-medium w-20 text-right">{item?.period?.split(' ')[0] ?? 'N/A'}</span>
+                                                <div className="flex-1 bg-gray-200 rounded-full h-6 relative">
+                                                    <div 
+                                                        className={`h-6 rounded-full ${isPositive ? 'bg-green-500' : 'bg-red-500'}`}
+                                                        style={{ width: `${width}%` }}
+                                                    />
+                                                    <span className="absolute inset-0 flex items-center justify-center text-xs font-medium text-black">
+                                                        {formatNumber(returnOnCapital, 1)}%
+                                                    </span>
+                                                </div>
+                                                <span className="text-xs text-gray-600 w-16 text-right">
+                                                    {item?.activeSymbols ?? 0} pos
+                                                </span>
+                                            </div>
+                                        );
+                                    }) : (
+                                        <div className="text-center py-4 text-gray-500">
+                                            No monthly data available
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* RoC Pie Chart (Right Side) */}
+                                <div className="flex justify-center">
+                                    {rocPieChartData && rocPieChartData.length > 0 ? (
+                                        createPieChart(
+                                            rocPieChartData.slice(0, 50).map((item, index) => ({
+                                                label: item?.label ?? 'Unknown',
+                                                value: parseFloat(String(item?.value ?? 0)),
+                                                color: generateColors(50)[index]
+                                            })),
+                                            "Return on Capital by Symbol (%)"
+                                        )
+                                    ) : (
+                                        <div className="text-center py-8 text-gray-500">
+                                            No RoC data available
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </>
+                    )}
+                </div>
+
+                {/* Return on Capital by Symbol - Horizontal Bar Chart */}
+                <div className="bg-white p-6 rounded-lg shadow">
+                    <h3 className="text-lg font-semibold mb-6 flex items-center">
+                        <BarChart3 className="mr-2 text-indigo-600" size={20} />
+                        Return on Capital by Symbol (Last 12 Months)
+                    </h3>
+                    
+                    {rocLoading ? (
+                        <div className="text-center py-8 text-gray-500">
+                            Loading Return on Capital data...
+                        </div>
+                    ) : rocError ? (
+                        <div className="bg-red-50 text-red-700 p-4 rounded-lg">
+                            {rocError}
+                        </div>
+                    ) : rocPieChartData && rocPieChartData.length > 0 ? (
+                        <div className="grid grid-cols-1 gap-2">
+                            {/* Full-width horizontal bar chart spanning both columns */}
+                            {rocPieChartData
+                                .sort((a, b) => parseFloat(String(b?.value ?? 0)) - parseFloat(String(a?.value ?? 0)))
+                                .map((item, index) => {
+                                    const maxRoC = Math.max(...rocPieChartData.map(d => Math.abs(parseFloat(String(d?.value ?? 0)))));
+                                    const returnOnCapital = parseFloat(String(item?.value ?? 0));
+                                    const width = maxRoC > 0 ? Math.abs(returnOnCapital) / maxRoC * 100 : 0;
+                                    const isPositive = returnOnCapital >= 0;
+                                    
+                                    return (
+                                        <div key={`equity-${item?.label ?? 'unknown'}-${index}`} className="flex items-center space-x-4">
+                                            <span className="text-sm font-medium w-16 text-left">{item?.label ?? 'N/A'}</span>
+                                            <div className="flex-1 bg-gray-200 rounded-full h-8 relative">
+                                                <div 
+                                                    className={`h-8 rounded-full ${isPositive ? 'bg-gradient-to-r from-green-400 to-green-600' : 'bg-gradient-to-r from-red-400 to-red-600'}`}
+                                                    style={{ width: `${width}%` }}
+                                                />
+                                                <span className="absolute inset-0 flex items-center justify-center text-sm font-medium text-black drop-shadow-md">
+                                                    {formatNumber(returnOnCapital, 1)}%
+                                                </span>
+                                            </div>
+                                            <div className="text-right w-32">
+                                                <div className="text-sm font-medium text-gray-900">
+                                                    ${formatNumber(parseFloat(String(item?.premium ?? 0)))}
+                                                </div>
+                                                <div className="text-xs text-gray-500">
+                                                    / ${formatNumber(parseFloat(String(item?.capital ?? 0)))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            }
+                        </div>
+                    ) : (
+                        <div className="text-center py-8 text-gray-500">
+                            No Return on Capital data available
+                        </div>
+                    )}
                 </div>
 
                 {/* Portfolio Summary Stats */}

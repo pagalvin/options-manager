@@ -46,6 +46,11 @@ export const FinancialLinks: React.FC<FinancialLinksProps> = ({
       url: `/chart/${security}`,
       label: '📊',
       title: 'View Chart'
+    },
+    {
+      url: `/stock-snapshot?ticker=${security}`,
+      label: 'SS',
+      title: 'Stock Snapshot'
     }
 
   ];

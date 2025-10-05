@@ -1,7 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
-import { ChevronDown, TrendingUp } from 'lucide-react';
 import { fetchUniqueSymbols } from '@/lib/api';
 
 const navigation = [
@@ -16,6 +15,7 @@ const navigation = [
   { name: 'Margin Analysis', href: '/margin-analysis' },
   { name: 'Margin Planning', href: '/margin-opportunity-planner' },
   { name: 'Options Analyzer', href: '/analyzer' },
+  { name: 'Stock Snapshot', href: '/stock-snapshot' },
   // { name: 'AI Chat', href: '/chat' },
   { name: 'E*TRADE', href: '/etrade' },
   // { name: 'Admin', href: '/admin' },
@@ -49,8 +49,6 @@ export function Navigation() {
     navigate(`/chart/${symbol}`);
     setShowChartDropdown(false);
   };
-
-  const isChartActive = location.pathname.startsWith('/chart');
 
   return (
     <nav className="bg-white shadow-sm border-b">
