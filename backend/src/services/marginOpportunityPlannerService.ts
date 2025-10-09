@@ -286,4 +286,22 @@ export class MarginOpportunityPlannerService {
       `, [week]);
     }
   }
+
+  // Get earnings dates for outstanding (non-rollable) options
+  async getEarningsDates(): Promise<Array<{symbol: string; earnings_date: string; company_name: string | null}>> {
+    const result = await this.pool.query(`
+      SELECT DISTINCT 
+        mpo.symbol,
+        moa.next_earnings_date as earnings_date,
+        moa.company_name
+      FROM overlord.margin_planning_options mpo
+      LEFT JOIN overlord.manual_options_analysis moa 
+        ON mpo.symbol = moa.security
+      WHERE mpo.rollable = false 
+        AND moa.next_earnings_date IS NOT NULL
+        AND mpo.strike_date >= CURRENT_DATE
+      ORDER BY moa.next_earnings_date, mpo.symbol
+    `);
+    return result.rows;
+  }
 }

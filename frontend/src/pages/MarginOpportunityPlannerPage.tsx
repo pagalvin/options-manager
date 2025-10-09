@@ -8,10 +8,17 @@ import {
   MarginPlanningOptionForm
 } from '../types/marginOpportunityPlanner';
 
+interface EarningsDate {
+  symbol: string;
+  earnings_date: string;
+  company_name: string | null;
+}
+
 const MarginOpportunityPlannerPage: React.FC = () => {
   const [marginMaster, setMarginMaster] = useState<MarginMaster | null>(null);
   const [options, setOptions] = useState<MarginPlanningOption[]>([]);
   const [planningGrid, setPlanningGrid] = useState<MarginPlanningGridRow[]>([]);
+  const [earningsDates, setEarningsDates] = useState<EarningsDate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'master' | 'options' | 'planning' | 'calendar'>('master');
@@ -48,25 +55,28 @@ const MarginOpportunityPlannerPage: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      const [masterRes, optionsRes, gridRes] = await Promise.all([
+      const [masterRes, optionsRes, gridRes, earningsRes] = await Promise.all([
         fetch('/api/margin-opportunity-planner/margin-master'),
         fetch('/api/margin-opportunity-planner/options'),
-        fetch('/api/margin-opportunity-planner/planning-grid')
+        fetch('/api/margin-opportunity-planner/planning-grid'),
+        fetch('/api/margin-opportunity-planner/earnings-dates')
       ]);
 
-      if (!masterRes.ok || !optionsRes.ok || !gridRes.ok) {
+      if (!masterRes.ok || !optionsRes.ok || !gridRes.ok || !earningsRes.ok) {
         throw new Error('Failed to fetch data');
       }
 
-      const [masterData, optionsData, gridData] = await Promise.all([
+      const [masterData, optionsData, gridData, earningsData] = await Promise.all([
         masterRes.json(),
         optionsRes.json(), 
-        gridRes.json()
+        gridRes.json(),
+        earningsRes.json()
       ]);
 
       setMarginMaster(masterData);
       setOptions(optionsData); // Has all options
       setPlanningGrid(gridData); // Has only non-rollable options
+      setEarningsDates(earningsData); // Has earnings dates for outstanding options
 
       // Initialize form with current data
       if (masterData) {
@@ -638,7 +648,7 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                       const dateTotalContracts = dateOptions.reduce((sum, opt) => sum + opt.total_contracts, 0);
                       const dateTotalValue = dateOptions.reduce((sum, opt) => sum + (opt.strike_price * opt.total_contracts * 100), 0);
                       // margin cost is calculated as 11.9% of the total value where 11.9% is for a full year
-                      const marginCost = 7 * ((dateTotalValue * 0.119) / 365); // Assuming 11.9% margin cost
+                      // const marginCost = 7 * ((dateTotalValue * 0.119) / 365); // Assuming 11.9% margin cost
 
                       grandTotalContracts += dateTotalContracts;
                       grandTotalValue += dateTotalValue;
@@ -844,7 +854,7 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                     {(() => {
                       // Start with current outstanding margin as the base
                       let cumulativeImpact = marginMaster?.current_outstanding_margin || 0;
-                      let cumulativeImpact2: number = marginMaster?.current_outstanding_margin || 0;
+                      // let cumulativeImpact2: number = marginMaster?.current_outstanding_margin || 0;
 
                   return sortedGrid.map((row) => {
                     const hasEdits = planningGridEdits[row.week_ending];
@@ -870,16 +880,16 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                     cumulativeImpact = Number(cumulativeImpact) + Number(marginImpact2);
                     // cumulativeImpact2 = Number(cumulativeImpact2) + marginImpact2;
 
-                    console.log(`MarginOpportunityPlannerPage: stats:`, 
-                        {
-                            mi2: marginImpact2,
-                            ci: cumulativeImpact,
-                            ci2: cumulativeImpact2,
-                            currentAssignments: currentAssignments,
-                            symbols: row.symbols_not_rollable || '-'
-                        }
-                    )
-                    console.log(`MarginOpportunityPlannerPage.tsx: MarginImpact2 = ${marginImpact2} Cumulative Impact = ${cumulativeImpact}, Cumulative Impact 2 = ${cumulativeImpact2}`);
+                    // console.log(`MarginOpportunityPlannerPage: stats:`, 
+                    //     {
+                    //         mi2: marginImpact2,
+                    //         ci: cumulativeImpact,
+                    //         ci2: cumulativeImpact2,
+                    //         currentAssignments: currentAssignments,
+                    //         symbols: row.symbols_not_rollable || '-'
+                    //     }
+                    // )
+                    // console.log(`MarginOpportunityPlannerPage.tsx: MarginImpact2 = ${marginImpact2} Cumulative Impact = ${cumulativeImpact}, Cumulative Impact 2 = ${cumulativeImpact2}`);
 
                     const marginCost = Math.max(0, 7 * ((cumulativeImpact * 0.119) / 365)); // Assuming 11.9% margin cost
                     
@@ -1094,6 +1104,11 @@ const MarginOpportunityPlannerPage: React.FC = () => {
       return options.filter(option => option.strike_date.split('T')[0] === dateStr);
     };
 
+    const getEarningsForDate = (year: number, month: number, day: number) => {
+      const dateStr = new Date(year, month, day).toISOString().split('T')[0];
+      return earningsDates.filter(earning => earning.earnings_date.split('T')[0] === dateStr);
+    };
+
     const isToday = (year: number, month: number, day: number) => {
       const date = new Date(year, month, day);
       return date.toDateString() === today.toDateString();
@@ -1117,8 +1132,8 @@ const MarginOpportunityPlannerPage: React.FC = () => {
     return (
       <div className="bg-white shadow rounded-lg">
         <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-medium text-gray-900">Calendar View - Option Expirations</h2>
-          <p className="text-sm text-gray-500 mt-1">View your option expirations by month • Market holidays shown in red</p>
+          <h2 className="text-lg font-medium text-gray-900">Calendar View - Option Expirations & Earnings</h2>
+          <p className="text-sm text-gray-500 mt-1">View your option expirations and earnings dates by month • Market holidays shown in red • Earnings dates shown with 📊</p>
         </div>
 
         <div className="p-6">
@@ -1146,7 +1161,7 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                 <div className="grid grid-cols-7 gap-1 mb-4">
                   {/* Day headers */}
                   {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => (
-                    <div key={day} className={`p-2 text-center text-sm font-medium border-b ${
+                    <div key={monthKey + day} className={`p-2 text-center text-sm font-medium border-b ${
                       index === 0 || index === 6 ? 'text-blue-600 bg-blue-50' : 'text-gray-500'
                     }`}>
                       {day}
@@ -1156,11 +1171,13 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                   {/* Calendar days */}
                   {calendarDays.map((day, index) => {
                     if (day === null) {
-                      return <div key={index} className="p-1 h-28"></div>;
+                      return <div key={index + monthKey} className="p-1 h-28"></div>;
                     }
                     
                     const dayOptions = getOptionsForDate(year, month, day);
+                    const dayEarnings = getEarningsForDate(year, month, day);
                     const hasOptions = dayOptions.length > 0;
+                    const hasEarnings = dayEarnings.length > 0;
                     const isTodayDate = isToday(year, month, day);
                     const isPast = isPastDate(year, month, day);
                     const isWeekendDay = isWeekend(year, month, day);
@@ -1208,6 +1225,21 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                           </div>
                         )}
                         
+                        {hasEarnings && (
+                          <div className="mb-1">
+                            {dayEarnings.map((earning, idx) => (
+                              <div
+                                key={idx}
+                                className="text-xs bg-purple-200 text-purple-900 px-1 py-0.5 rounded mb-0.5 flex items-center leading-tight"
+                                title={`${earning.symbol} Earnings${earning.company_name ? ' - ' + earning.company_name : ''}`}
+                              >
+                                <span className="mr-1">📊</span>
+                                <span className="font-semibold truncate">{earning.symbol}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        
                         {hasOptions && (
                           <div className="flex-1 overflow-hidden">
                             <div className="space-y-0.5 h-full overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
@@ -1230,16 +1262,37 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                 </div>
                 
                 {/* Monthly summary */}
-                {monthOptions.length > 0 && (
+                {(monthOptions.length > 0 || earningsDates.filter(e => {
+                  const eDate = new Date(e.earnings_date);
+                  return eDate.getFullYear() === year && eDate.getMonth() === month;
+                }).length > 0) && (
                   <div className="bg-gray-50 p-4 rounded-lg">
                     <h4 className="text-sm font-medium text-gray-900 mb-2">
-                      {monthName} Summary ({monthOptions.length} options expiring)
+                      {monthName} Summary
                     </h4>
                     <div className="text-sm text-gray-600 space-y-1">
-                      <div>Total Contracts: {monthOptions.reduce((sum, opt) => sum + opt.total_contracts, 0)}</div>
-                      <div>Total Strike Value: ${monthOptions.reduce((sum, opt) => sum + (opt.strike_price * opt.total_contracts * 100), 0).toLocaleString()}</div>
-                      <div>Symbols: {[...new Set(monthOptions.map(opt => opt.symbol))].join(', ')}</div>
-                      <div>Rollable: {monthOptions.filter(opt => opt.rollable).length} | Non-rollable: {monthOptions.filter(opt => !opt.rollable).length}</div>
+                      {monthOptions.length > 0 && (
+                        <>
+                          <div className="font-semibold text-gray-700">Options Expiring ({monthOptions.length}):</div>
+                          <div>Total Contracts: {monthOptions.reduce((sum, opt) => sum + opt.total_contracts, 0)}</div>
+                          <div>Total Strike Value: ${monthOptions.reduce((sum, opt) => sum + (opt.strike_price * opt.total_contracts * 100), 0).toLocaleString()}</div>
+                          <div>Symbols: {[...new Set(monthOptions.map(opt => opt.symbol))].join(', ')}</div>
+                          <div>Rollable: {monthOptions.filter(opt => opt.rollable).length} | Non-rollable: {monthOptions.filter(opt => !opt.rollable).length}</div>
+                        </>
+                      )}
+                      {(() => {
+                        const monthEarnings = earningsDates.filter(e => {
+                          const eDate = new Date(e.earnings_date);
+                          return eDate.getFullYear() === year && eDate.getMonth() === month;
+                        });
+                        return monthEarnings.length > 0 && (
+                          <>
+                            {monthOptions.length > 0 && <div className="my-2 border-t border-gray-300"></div>}
+                            <div className="font-semibold text-gray-700">📊 Earnings Dates ({monthEarnings.length}):</div>
+                            <div>{monthEarnings.map(e => `${e.symbol} (${new Date(e.earnings_date).toLocaleDateString()})`).join(', ')}</div>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 )}
@@ -1247,10 +1300,10 @@ const MarginOpportunityPlannerPage: React.FC = () => {
             );
           })}
           
-          {options.length === 0 && (
+          {options.length === 0 && earningsDates.length === 0 && (
             <div className="text-center py-8">
               <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-500">No options found. Add some options or load from ETrade to see the calendar view.</p>
+              <p className="text-gray-500">No options or earnings dates found. Add some options or load from ETrade to see the calendar view.</p>
             </div>
           )}
         </div>
@@ -1258,7 +1311,7 @@ const MarginOpportunityPlannerPage: React.FC = () => {
         {/* Legend */}
         <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
           <h4 className="text-sm font-medium text-gray-900 mb-3">Legend</h4>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 text-xs">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 text-xs">
             <div className="flex items-center space-x-2">
               <div className="w-4 h-4 bg-blue-100 border border-blue-400 rounded"></div>
               <span>Today</span>
@@ -1274,6 +1327,12 @@ const MarginOpportunityPlannerPage: React.FC = () => {
             <div className="flex items-center space-x-2">
               <div className="w-4 h-4 bg-orange-50 border-2 border-orange-400 rounded"></div>
               <span>Options Expire</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="w-4 h-4 bg-purple-200 border border-purple-300 rounded flex items-center justify-center">
+                <span className="text-[8px]">📊</span>
+              </div>
+              <span>Earnings Date</span>
             </div>
             <div className="flex items-center space-x-2">
               <div className="w-4 h-4 bg-gray-50 border border-gray-200 rounded"></div>

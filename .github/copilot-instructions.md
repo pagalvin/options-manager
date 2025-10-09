@@ -13,9 +13,10 @@ Never put passwords, API keys, or other sensitive information in the codebase. U
 
 Always use PowerShell for command-line instructions.
 
-# Postgres
+# Postgres Database
+The backend uses a Postgres database.
 
-Use the .env file to understand database settings including user id to log into Postgres
+Use the .env file in the backend folder to understand database settings including user id to log into Postgres
 
 # ReactJS Development Instructions
 

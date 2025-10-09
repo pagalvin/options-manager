@@ -1,4 +1,5 @@
 import { FinancialLinks } from "@/components/FinancialLinks";
+import { LatestNews } from "@/components/LatestNews";
 import { getLastThreeMonthsNames, getMonday, getNextSunday } from "@/helpers/dateHelper";
 import transactionsService, { Transaction } from "@/services/transactionsService";
 import { returnOnCapitalService, ReturnOnCapitalPieChartData, ReturnOnCapitalBarChartData, AggregatedReturnOnCapitalData } from "@/services/returnOnCapitalService";
@@ -39,11 +40,14 @@ export function Options() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [hideZeroLots, setHideZeroLots] = useState(true);
-    const [activeTab, setActiveTab] = useState<'grid' | 'charts'>('grid');
+    const [activeTab, setActiveTab] = useState<'grid' | 'charts' | 'news'>('grid');
     const [sortConfig, setSortConfig] = useState<{
         key: keyof OptionAnalysis;
         direction: "asc" | "desc";
     } | null>(null);
+    
+    // Get unique tickers for news analysis
+    const uniqueTickers = Array.from(new Set(optionAnalysis.map(a => a.symbol))).sort();
 
     // Return on Capital state
     const [rocPieChartData, setRocPieChartData] = useState<ReturnOnCapitalPieChartData[]>([]);
@@ -1201,6 +1205,16 @@ export function Options() {
                     >
                         Analytics & Charts
                     </button>
+                    <button
+                        onClick={() => setActiveTab('news')}
+                        className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                            activeTab === 'news'
+                                ? 'border-blue-500 text-blue-600'
+                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                        }`}
+                    >
+                        Latest News
+                    </button>
                 </nav>
             </div>
 
@@ -1814,6 +1828,12 @@ export function Options() {
                     )}
 
                     {activeTab === 'charts' && renderChartsTab()}
+                    
+                    {activeTab === 'news' && (
+                        <div className="bg-white p-6 rounded-lg shadow">
+                            <LatestNews tickers={uniqueTickers} />
+                        </div>
+                    )}
                 </>
             )}
         </div>

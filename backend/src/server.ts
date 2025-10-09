@@ -21,6 +21,7 @@ import premiumCashFlowRoutes from './routes/premiumCashFlow';
 import marginOpportunityPlannerRoutes from './routes/marginOpportunityPlanner';
 import returnOnCapitalRoutes from './routes/returnOnCapital';
 import stockAnalysisRoutes from './routes/stockAnalysis';
+import newsRoutes from './routes/news';
 
 // Load environment variables
 dotenv.config();
@@ -55,6 +56,7 @@ app.use('/api/margin-opportunity-planner', marginOpportunityPlannerRoutes);
 app.use('/api/return-on-capital', returnOnCapitalRoutes);
 app.use('/api/price', stockPriceRoutes);
 app.use('/api/stock-analysis', stockAnalysisRoutes);
+app.use('/api/news', newsRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req: express.Request, res: express.Response) => {

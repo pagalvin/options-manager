@@ -8,6 +8,7 @@ interface ManualOptionsAnalysis {
   id?: number;
   security: string;
   market_price?: number | null;
+  margin_requirement_percentage?: number | null;
   lots?: number | null;
   option_date?: string | null;
   strike_price?: number | null;
@@ -25,6 +26,7 @@ interface ManualOptionsAnalysis {
 interface FormData {
   security: string;
   market_price: string;
+  margin_requirement_percentage: string;
   lots: string;
   option_date: string;
   strike_price: string;
@@ -58,6 +60,7 @@ export function OptionsAnalyzer() {
   const [formData, setFormData] = useState<FormData>({
     security: '',
     market_price: '',
+    margin_requirement_percentage: '',
     lots: '',
     option_date: '',
     strike_price: '',
@@ -273,8 +276,40 @@ export function OptionsAnalyzer() {
   };
 
   // Calculate net percent gain when accounting for margin interest costs
-  const calculateNetGainWhenMargined = (lots: number | null, marketPrice: number | null, strikePrice: number | null, premium: number | null, optionDate: string | null): number | null => {
-    if (!lots || !marketPrice || !strikePrice || !premium || !optionDate) return null;
+  // When margin price is available, calculates return on actual cash invested (margin price)
+  // Net When Margined % = (Net Profit - Margin Interest Cost) / (Margin Price × 100)
+  // where Net Profit = (Strike - Market Price + Premium) × 100
+  // and Margin Interest = Cash Invested × (13.20% / 365) × Days to Expiration
+  const calculateNetGainWhenMargined = (lots: number | null, marketPrice: number | null, marginRequirementPercentage: number | null, strikePrice: number | null, premium: number | null, optionDate: string | null): number | null => {
+    if (!lots || !strikePrice || !premium || !optionDate) return null;
+    
+    // If margin requirement percentage is available, use it for cash basis calculation
+    if (marginRequirementPercentage && marketPrice) {
+      // Cash invested = market price × margin percentage × shares
+      const cashInvested = lots * 100 * marketPrice * (marginRequirementPercentage / 100);
+      
+      // Calculate net gain based on market price (actual stock performance)
+      // Net gain = (strike - market price) × shares + premium × shares
+      const netOnStrike = calculateNetOnStrike(lots, marketPrice, strikePrice, premium);
+      
+      // Calculate margin interest cost based on cash invested
+      const daysToExpiration = calculateDaysFromToday(optionDate);
+      if (!daysToExpiration || daysToExpiration <= 0) return null;
+      
+      const dailyRate = MARGIN_RATE / 365;
+      const marginInterest = cashInvested * dailyRate * daysToExpiration;
+      
+      if (!cashInvested || cashInvested <= 0 || netOnStrike === null) return null;
+      
+      // Subtract margin interest cost from net profit
+      const netGainAfterMargin = netOnStrike - marginInterest;
+      
+      // Return as percentage of actual cash invested
+      return (netGainAfterMargin / cashInvested) * 100;
+    }
+    
+    // Fallback: use market price for both calculations (standard non-margin calculation)
+    if (!marketPrice) return null;
     
     const cashNeeded = calculateCashNeeded(lots, marketPrice, premium);
     const netOnStrike = calculateNetOnStrike(lots, marketPrice, strikePrice, premium);
@@ -282,10 +317,7 @@ export function OptionsAnalyzer() {
     
     if (!cashNeeded || cashNeeded <= 0 || !netOnStrike || !marginInterest) return null;
     
-    // Net gain after subtracting margin interest costs
     const netGainAfterMargin = netOnStrike - marginInterest;
-    
-    // Return as percentage of cash needed
     return (netGainAfterMargin / cashNeeded) * 100;
   };
 
@@ -351,8 +383,8 @@ export function OptionsAnalyzer() {
           return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
         case 'net_when_margined':
           // Sort by net gain when margined percent
-          aValue = calculateNetGainWhenMargined(a.lots || null, a.market_price || null, a.strike_price || null, a.premium_per_contract || null, a.option_date || null) || -999999;
-          bValue = calculateNetGainWhenMargined(b.lots || null, b.market_price || null, b.strike_price || null, b.premium_per_contract || null, b.option_date || null) || -999999;
+          aValue = calculateNetGainWhenMargined(a.lots || null, a.market_price || null, a.margin_requirement_percentage || null, a.strike_price || null, a.premium_per_contract || null, a.option_date || null) || -999999;
+          bValue = calculateNetGainWhenMargined(b.lots || null, b.market_price || null, b.margin_requirement_percentage || null, b.strike_price || null, b.premium_per_contract || null, b.option_date || null) || -999999;
           return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
         case 'strike_hit_probability':
           // Sort by strike hit probability
@@ -471,6 +503,7 @@ export function OptionsAnalyzer() {
     setFormData({
       security: '',
       market_price: '',
+      margin_requirement_percentage: '',
       lots: '',
       option_date: '',
       strike_price: '',
@@ -499,6 +532,7 @@ export function OptionsAnalyzer() {
       const payload = {
         security: formData.security.trim().toUpperCase(),
         market_price: formData.market_price ? parseFloat(formData.market_price) : null,
+        margin_requirement_percentage: formData.margin_requirement_percentage ? parseFloat(formData.margin_requirement_percentage) : null,
         lots: formData.lots ? parseInt(formData.lots) : null,
         option_date: formData.option_date || null,
         strike_price: formData.strike_price ? parseFloat(formData.strike_price) : null,
@@ -560,6 +594,7 @@ export function OptionsAnalyzer() {
     setFormData({
       security: entry.security,
       market_price: entry.market_price?.toString() || '',
+      margin_requirement_percentage: entry.margin_requirement_percentage?.toString() || '',
       lots: entry.lots?.toString() || '',
       option_date: normalizeDateInput(entry.option_date),
       strike_price: entry.strike_price?.toString() || '',
@@ -1079,6 +1114,22 @@ export function OptionsAnalyzer() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
+                Margin Requirement Percentage
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                name="margin_requirement_percentage"
+                value={formData.margin_requirement_percentage}
+                onChange={handleInputChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="30.0"
+                title="Margin requirement as a percentage (e.g., 30.0 for 30% margin requirement)"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
                 Lots/Contracts
               </label>
               <input
@@ -1298,6 +1349,9 @@ export function OptionsAnalyzer() {
                     </div>
                   </th>
                   <th className={`${baseHeaderRowStyles} text-right text-xs font-medium text-gray-500 uppercase tracking-wider`}>
+                    Margin Req %
+                  </th>
+                  <th className={`${baseHeaderRowStyles} text-right text-xs font-medium text-gray-500 uppercase tracking-wider`}>
                     Lots
                   </th>
                   <th className={`${baseHeaderRowStyles} text-left text-xs font-medium text-gray-500 uppercase tracking-wider`}>
@@ -1424,7 +1478,7 @@ export function OptionsAnalyzer() {
                   const marginInterestPerDay = calculateMarginInterestPerDay(entry.lots || null, entry.market_price || null, entry.premium_per_contract || null);
                   const marginInterestPerWeek = calculateMarginInterestPerWeek(entry.lots || null, entry.market_price || null, entry.premium_per_contract || null);
                   const marginInterestPerMonth = calculateMarginInterestPerMonth(entry.lots || null, entry.market_price || null, entry.premium_per_contract || null);
-                  const netGainWhenMargined = calculateNetGainWhenMargined(entry.lots || null, entry.market_price || null, entry.strike_price || null, entry.premium_per_contract || null, entry.option_date || null);
+                  const netGainWhenMargined = calculateNetGainWhenMargined(entry.lots || null, entry.market_price || null, entry.margin_requirement_percentage || null, entry.strike_price || null, entry.premium_per_contract || null, entry.option_date || null);
 
                   return (
                     <tr key={entry.id} className="hover:bg-gray-50">
@@ -1486,6 +1540,9 @@ export function OptionsAnalyzer() {
                       </td>
                       <td className={`${baseRowStyles} text-sm text-gray-900 text-right`}>
                         { entry.market_price ? `$${formatNumber(entry.market_price)}` : '-'}
+                      </td>
+                      <td className={`${baseRowStyles} text-sm text-gray-900 text-right`}>
+                        {entry.margin_requirement_percentage ? `${formatNumber(entry.margin_requirement_percentage)}%` : 'N/E'}
                       </td>
                       <td className={`${baseRowStyles} text-sm text-gray-900 text-right`}>
                         {entry.lots && entry.lots ? formatNumber(entry.lots, 0) : '-'}
@@ -1635,7 +1692,7 @@ export function OptionsAnalyzer() {
               </tbody>
               <tfoot className="bg-gray-50">
                 <tr>
-                  <td className={`${baseRowStyles} font-semibold text-gray-900`} colSpan={9}>
+                  <td className={`${baseRowStyles} font-semibold text-gray-900`} colSpan={10}>
                     Total
                   </td>
                   <td className={`${baseRowStyles} font-semibold text-gray-900 text-right`}>

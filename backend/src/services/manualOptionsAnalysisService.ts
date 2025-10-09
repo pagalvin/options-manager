@@ -29,6 +29,7 @@ export interface ManualOptionsAnalysis {
   id?: number;
   security: string;
   market_price?: number | null;
+  margin_requirement_percentage?: number | null;
   lots?: number | null;
   option_date?: string | null;
   strike_price?: number | null;
@@ -75,15 +76,16 @@ export class ManualOptionsAnalysisService {
   async createEntry(entry: Omit<ManualOptionsAnalysis, 'id' | 'created_at' | 'updated_at'>): Promise<ManualOptionsAnalysis> {
     const query = `
       INSERT INTO overlord.manual_options_analysis (
-        security, market_price, lots, option_date, strike_price, premium_per_contract, implied_volatility, delta, notes,
+        security, market_price, margin_requirement_percentage, lots, option_date, strike_price, premium_per_contract, implied_volatility, delta, notes,
         next_earnings_date, company_name, ex_dividend_date
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *
     `;
     
     const result = await pool.query(query, [
       entry.security,
       entry.market_price,
+      entry.margin_requirement_percentage,
       entry.lots,
       entry.option_date,
       entry.strike_price,
@@ -111,6 +113,10 @@ export class ManualOptionsAnalysisService {
     if (entry.market_price !== undefined) {
       fields.push(`market_price = $${paramCount++}`);
       values.push(entry.market_price);
+    }
+    if (entry.margin_requirement_percentage !== undefined) {
+      fields.push(`margin_requirement_percentage = $${paramCount++}`);
+      values.push(entry.margin_requirement_percentage);
     }
     if (entry.lots !== undefined) {
       fields.push(`lots = $${paramCount++}`);

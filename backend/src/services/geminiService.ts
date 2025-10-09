@@ -381,6 +381,142 @@ Context: This is for an options trading application that helps users manage cove
   }
 
   /**
+   * Generate news analysis for a stock ticker
+   */
+  async generateNewsAnalysis(ticker: string): Promise<any> {
+    const prompt = this.buildNewsAnalysisPrompt(ticker);
+    let rawResponse: string = '';
+
+    try {
+      console.log(`Generating news analysis for ${ticker}...`);
+      
+      // Use text/plain with Google Search to get latest news
+      const result = await this.executePrompt(
+        prompt,
+        [], // No chat history for news analysis
+        'text/plain', // Allow Google Search
+        8000 // Token limit
+      );
+      
+      let responseText = result.response;
+      rawResponse = responseText;
+      
+      console.log(`Raw news response length: ${responseText.length} characters`);
+      
+      // Clean the response by removing markdown code blocks
+      responseText = responseText.trim();
+      responseText = responseText.replace(/^```(?:json|JSON)?\s*\n?/i, '');
+      responseText = responseText.replace(/\n?```[\s\S]*$/, '');
+      responseText = responseText.replace(/^`+|`+$/g, '');
+      responseText = responseText.trim();
+      
+      // Extract first complete JSON object
+      let braceCount = 0;
+      let firstJsonEnd = -1;
+      let inString = false;
+      let escapeNext = false;
+      
+      for (let i = 0; i < responseText.length; i++) {
+        const char = responseText[i];
+        
+        if (escapeNext) {
+          escapeNext = false;
+          continue;
+        }
+        
+        if (char === '\\') {
+          escapeNext = true;
+          continue;
+        }
+        
+        if (char === '"' && !escapeNext) {
+          inString = !inString;
+          continue;
+        }
+        
+        if (!inString) {
+          if (char === '{') {
+            braceCount++;
+          } else if (char === '}') {
+            braceCount--;
+            if (braceCount === 0) {
+              firstJsonEnd = i;
+              break;
+            }
+          }
+        }
+      }
+      
+      if (firstJsonEnd !== -1) {
+        responseText = responseText.substring(0, firstJsonEnd + 1);
+      }
+      
+      console.log(`Final news response length: ${responseText.length} characters`);
+      
+      // Parse the cleaned JSON response
+      const analysis = JSON.parse(responseText);
+      
+      return analysis;
+    } catch (error: any) {
+      console.error('Error generating news analysis:', error);
+      if (rawResponse) {
+        console.error('Raw response (first 300 chars):', rawResponse.substring(0, 300));
+      }
+      
+      // If rate limited, throw specific error
+      if (error.message && error.message.includes('429')) {
+        throw new Error('RATE_LIMITED');
+      }
+      
+      throw new Error(`Failed to generate news analysis for ${ticker}: ${error.message}`);
+    }
+  }
+
+  /**
+   * Build news analysis prompt
+   */
+  private buildNewsAnalysisPrompt(ticker: string): string {
+    return `You are a financial news analyst. Use Google Search to find the latest news and information about the stock ticker: ${ticker.toUpperCase()}.
+
+CRITICAL: Use Google Search to find the most recent news articles (within the last 2 weeks if possible) about ${ticker.toUpperCase()}.
+
+Search for:
+1. Recent news articles about ${ticker.toUpperCase()}
+2. Earnings announcements or guidance
+3. Major business developments
+4. Analyst upgrades or downgrades
+5. Significant market events affecting the company
+
+IMPORTANT: You MUST respond with ONLY valid JSON matching the exact structure specified below.
+Do not include any markdown, explanations, or text outside the JSON object.
+
+Return your response as a JSON object with this EXACT structure:
+
+{
+  "ticker": "${ticker.toUpperCase()}",
+  "analysisDate": "${new Date().toISOString()}",
+  "articles": [
+    {
+      "title": "string - article title",
+      "summary": "string - brief summary of the article (2-3 sentences)",
+      "link": "string - fully qualified and accurate URL to the article based on your Google Search results",
+      "sentiment": "positive OR negative OR neutral",
+      "publicationDate": "string - date the article was published (if available)"
+    }
+  ]
+}
+
+Requirements:
+- Find exactly 3 most recent and relevant news articles
+- For each article, analyze whether the news is positive, negative, or neutral for the stock
+- Include working URLs to the articles
+- Focus on news from the last 1-2 weeks if available
+- If fewer than 3 articles are found, return what you find
+
+Respond with ONLY the JSON object. No markdown formatting, no explanations, just valid JSON.`;
+  }
+
+  /**
    * Build comprehensive stock analysis prompt
    */
   private buildStockAnalysisPrompt(ticker: string): string {

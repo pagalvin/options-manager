@@ -2,6 +2,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { fetchUniqueSymbols } from '@/lib/api';
+import { useETradeConnectivity } from '../hooks/useETradeConnectivity';
 
 const navigation = [
   { name: 'Dashboard', href: '/' },
@@ -12,10 +13,10 @@ const navigation = [
   { name: 'Options', href: '/options' },
   { name: 'Performance', href: '/performance' },
   { name: 'Cash Flow', href: '/premium-cash-flow' },
-  { name: 'Margin Analysis', href: '/margin-analysis' },
+  // { name: 'Margin Analysis', href: '/margin-analysis' },
   { name: 'Margin Planning', href: '/margin-opportunity-planner' },
   { name: 'Options Analyzer', href: '/analyzer' },
-  { name: 'Stock Snapshot', href: '/stock-snapshot' },
+  // { name: 'Stock Snapshot', href: '/stock-snapshot' },
   // { name: 'AI Chat', href: '/chat' },
   { name: 'E*TRADE', href: '/etrade' },
   // { name: 'Admin', href: '/admin' },
@@ -27,6 +28,7 @@ export function Navigation() {
   const [showChartDropdown, setShowChartDropdown] = useState(false);
   const [symbols, setSymbols] = useState<string[]>([]);
   const [symbolsLoading, setSymbolsLoading] = useState(true);
+  const { isConnected, isChecking, lastError, retryConnection } = useETradeConnectivity();
 
   useEffect(() => {
     const loadSymbols = async () => {
@@ -57,12 +59,13 @@ export function Navigation() {
           <div className="flex">
             <div className="flex-shrink-0 flex items-center">
               <h1 className="text-xl font-bold text-gray-900">
-                Options Trading ROI Tracker
+                Options Tracker
               </h1>
             </div>
             <div className="hidden sm:ml-8 sm:flex sm:space-x-8">
               {navigation.map((item) => {
                 const isActive = location.pathname === item.href;
+                const isETrade = item.name === 'E*TRADE';
                 
                 return (
                   <Link
@@ -74,8 +77,29 @@ export function Navigation() {
                         ? 'border-blue-500 text-gray-900'
                         : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                     )}
+                    title={isETrade && !isConnected ? `E*TRADE Connection Issue: ${lastError || 'Unable to connect'}` : undefined}
                   >
-                    {item.name}
+                    <span className="flex items-center gap-2">
+                      {item.name}
+                      {isETrade && (
+                        <div className="flex items-center">
+                          {isChecking ? (
+                            <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" title="Checking connection..." />
+                          ) : isConnected ? (
+                            <div className="w-2 h-2 bg-green-500 rounded-full" title="Connected" />
+                          ) : (
+                            <div 
+                              className="w-2 h-2 bg-red-500 rounded-full cursor-pointer hover:bg-red-600" 
+                              title={`Connection issue: ${lastError || 'Unable to connect'}. Click to retry.`}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                retryConnection();
+                              }}
+                            />
+                          )}
+                        </div>
+                      )}
+                    </span>
                   </Link>
                 );
               })}

@@ -183,4 +183,15 @@ router.get('/weeks-with-expirations', async (req, res) => {
   }
 });
 
+// Get earnings dates for outstanding options
+router.get('/earnings-dates', async (req, res) => {
+  try {
+    const earningsDates = await marginOpportunityPlannerService.getEarningsDates();
+    res.json(earningsDates);
+  } catch (error) {
+    console.error('Error fetching earnings dates:', error);
+    res.status(500).json({ error: 'Failed to fetch earnings dates' });
+  }
+});
+
 export default router;
