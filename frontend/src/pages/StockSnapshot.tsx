@@ -233,6 +233,314 @@ export const StockSnapshotPage = () => {
             </Card>
           )}
 
+          {/* Core Financials */}
+          {analysis.coreFinancials && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Core Financials</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid md:grid-cols-3 gap-4">
+                  {analysis.coreFinancials.lastYearRevenue && (
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">
+                        FY{analysis.coreFinancials.lastYearRevenueYear} Revenue
+                      </p>
+                      <p className="text-2xl font-bold">
+                        ${analysis.coreFinancials.lastYearRevenue.toLocaleString()}M
+                      </p>
+                    </div>
+                  )}
+                  {analysis.coreFinancials.anticipatedCurrentYearRevenue && (
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">
+                        FY{analysis.coreFinancials.currentFiscalYear} Est. Revenue
+                      </p>
+                      <p className="text-2xl font-bold">
+                        ${analysis.coreFinancials.anticipatedCurrentYearRevenue.toLocaleString()}M
+                      </p>
+                    </div>
+                  )}
+                  {analysis.coreFinancials.totalEmployees && (
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Total Employees</p>
+                      <p className="text-2xl font-bold">
+                        {analysis.coreFinancials.totalEmployees.toLocaleString()}
+                      </p>
+                    </div>
+                  )}
+                  {analysis.coreFinancials.revenuePerEmployee && (
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Revenue per Employee</p>
+                      <p className="text-2xl font-bold">
+                        ${analysis.coreFinancials.revenuePerEmployee.toLocaleString()}K
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Efficiency & Profitability Metrics */}
+          {(analysis.efficiencyMetrics || analysis.profitabilityMetrics) && (
+            <div className="grid md:grid-cols-2 gap-6">
+              {analysis.efficiencyMetrics && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Efficiency & Productivity</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {analysis.efficiencyMetrics.operatingMargin !== undefined && (
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Operating Margin</p>
+                        <p className="text-xl font-bold">{analysis.efficiencyMetrics.operatingMargin?.toFixed(2)}%</p>
+                      </div>
+                    )}
+                    {analysis.efficiencyMetrics.ebitdaPerEmployee && (
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">EBITDA per Employee</p>
+                        <p className="text-xl font-bold">
+                          ${analysis.efficiencyMetrics.ebitdaPerEmployee.toLocaleString()}K
+                        </p>
+                      </div>
+                    )}
+                    {analysis.efficiencyMetrics.salesPerSquareFoot && (
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Sales per Square Foot</p>
+                        <p className="text-xl font-bold">
+                          ${analysis.efficiencyMetrics.salesPerSquareFoot.toLocaleString()}
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {analysis.profitabilityMetrics && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Profitability & Capital Efficiency</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {analysis.profitabilityMetrics.roic !== undefined && (
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Return on Invested Capital (ROIC)</p>
+                        <p className="text-xl font-bold">{analysis.profitabilityMetrics.roic?.toFixed(2)}%</p>
+                      </div>
+                    )}
+                    {analysis.profitabilityMetrics.fcfMargin !== undefined && (
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Free Cash Flow Margin</p>
+                        <p className="text-xl font-bold">{analysis.profitabilityMetrics.fcfMargin?.toFixed(2)}%</p>
+                      </div>
+                    )}
+                    {analysis.profitabilityMetrics.cashConversionCycle !== undefined && (
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Cash Conversion Cycle</p>
+                        <p className="text-xl font-bold">{analysis.profitabilityMetrics.cashConversionCycle?.toFixed(0)} days</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+
+          {/* Growth Metrics */}
+          {analysis.growthMetrics && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Growth & Forecasting</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {analysis.growthMetrics.threeYearSalesCAGR !== undefined && (
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">3-Year Sales CAGR</p>
+                      <p className="text-xl font-bold text-green-600">
+                        {analysis.growthMetrics.threeYearSalesCAGR?.toFixed(2)}%
+                      </p>
+                    </div>
+                  )}
+                  {analysis.growthMetrics.threeYearEPSCAGR !== undefined && (
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">3-Year EPS CAGR</p>
+                      <p className="text-xl font-bold text-green-600">
+                        {analysis.growthMetrics.threeYearEPSCAGR?.toFixed(2)}%
+                      </p>
+                    </div>
+                  )}
+                  {analysis.growthMetrics.rdSpendPercentOfRevenue !== undefined && (
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">R&D % of Revenue</p>
+                      <p className="text-xl font-bold">
+                        {analysis.growthMetrics.rdSpendPercentOfRevenue?.toFixed(2)}%
+                      </p>
+                    </div>
+                  )}
+                  {analysis.growthMetrics.backlogVsAnticipatedSales !== undefined && (
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Backlog vs Anticipated Sales</p>
+                      <p className="text-xl font-bold">
+                        {analysis.growthMetrics.backlogVsAnticipatedSales?.toFixed(2)}%
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Ownership & Risk Indicators */}
+          {(analysis.ownershipStructure || analysis.riskIndicators) && (
+            <div className="grid md:grid-cols-2 gap-6">
+              {analysis.ownershipStructure && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Ownership Structure</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      {analysis.ownershipStructure.insiderOwnershipPercent !== undefined && (
+                        <div>
+                          <p className="text-sm font-medium text-muted-foreground">Insider Ownership</p>
+                          <p className="text-xl font-bold">
+                            {analysis.ownershipStructure.insiderOwnershipPercent?.toFixed(2)}%
+                          </p>
+                        </div>
+                      )}
+                      {analysis.ownershipStructure.institutionalOwnershipPercent !== undefined && (
+                        <div>
+                          <p className="text-sm font-medium text-muted-foreground">Institutional Ownership</p>
+                          <p className="text-xl font-bold">
+                            {analysis.ownershipStructure.institutionalOwnershipPercent?.toFixed(2)}%
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                    {analysis.ownershipStructure.segmentRevenueBreakdown && 
+                     analysis.ownershipStructure.segmentRevenueBreakdown.length > 0 && (
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground mb-2">Revenue by Segment</p>
+                        <div className="space-y-2">
+                          {analysis.ownershipStructure.segmentRevenueBreakdown.map((segment, idx) => (
+                            <div key={idx} className="flex justify-between items-center">
+                              <span className="text-sm">{segment.segment}</span>
+                              <span className="text-sm font-semibold">
+                                {segment.revenuePercent?.toFixed(1)}%
+                                {segment.revenue && ` ($${segment.revenue.toLocaleString()}M)`}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {analysis.riskIndicators && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Risk & Volatility Indicators</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {analysis.riskIndicators.altmanZScore !== undefined && (
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Altman Z-Score</p>
+                        <p className={`text-xl font-bold ${
+                          analysis.riskIndicators.altmanZScore > 2.99 ? 'text-green-600' :
+                          analysis.riskIndicators.altmanZScore > 1.8 ? 'text-yellow-600' :
+                          'text-red-600'
+                        }`}>
+                          {analysis.riskIndicators.altmanZScore?.toFixed(2)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {analysis.riskIndicators.altmanZScore > 2.99 ? 'Safe Zone' :
+                           analysis.riskIndicators.altmanZScore > 1.8 ? 'Grey Zone' : 'Distress Zone'}
+                        </p>
+                      </div>
+                    )}
+                    {analysis.riskIndicators.interestCoverageRatio !== undefined && (
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Interest Coverage Ratio</p>
+                        <p className="text-xl font-bold">
+                          {analysis.riskIndicators.interestCoverageRatio?.toFixed(2)}x
+                        </p>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-4">
+                      {analysis.riskIndicators.betaVsIndex !== undefined && (
+                        <div>
+                          <p className="text-sm font-medium text-muted-foreground">Beta vs Index</p>
+                          <p className="text-lg font-bold">
+                            {analysis.riskIndicators.betaVsIndex?.toFixed(2)}
+                          </p>
+                        </div>
+                      )}
+                      {analysis.riskIndicators.betaVsSector !== undefined && (
+                        <div>
+                          <p className="text-sm font-medium text-muted-foreground">Beta vs Sector</p>
+                          <p className="text-lg font-bold">
+                            {analysis.riskIndicators.betaVsSector?.toFixed(2)}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+
+          {/* Sentiment Indicators */}
+          {analysis.sentimentIndicators && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Sentiment & Narrative Signals</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid md:grid-cols-3 gap-4">
+                  {analysis.sentimentIndicators.glassdoorRating !== undefined && (
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Glassdoor Rating</p>
+                      <p className="text-xl font-bold">
+                        {analysis.sentimentIndicators?.glassdoorRating?.toFixed(1)} / 5.0
+                      </p>
+                      <p className="text-xs text-muted-foreground">Employee Sentiment</p>
+                    </div>
+                  )}
+                  {analysis.sentimentIndicators.patentCount !== undefined && (
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Patent Portfolio</p>
+                      <p className="text-xl font-bold">
+                        {analysis.sentimentIndicators?.patentCount?.toLocaleString()}
+                      </p>
+                      <p className="text-xs text-muted-foreground">Patents/IP</p>
+                    </div>
+                  )}
+                  {analysis.sentimentIndicators.esgControversyScore !== undefined && (
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">ESG Controversy Score</p>
+                      <p className={`text-xl font-bold ${
+                        analysis.sentimentIndicators.esgControversyScore < 3 ? 'text-green-600' :
+                        analysis.sentimentIndicators.esgControversyScore < 6 ? 'text-yellow-600' :
+                        'text-red-600'
+                      }`}>
+                        {analysis.sentimentIndicators.esgControversyScore?.toFixed(1)} / 10
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {analysis.sentimentIndicators.esgControversyScore < 3 ? 'Low Risk' :
+                         analysis.sentimentIndicators.esgControversyScore < 6 ? 'Medium Risk' : 'High Risk'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
 
 
           {/* Key Dates & Headquarters */}

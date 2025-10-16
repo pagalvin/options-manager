@@ -601,6 +601,44 @@ Using the information gathered from your Google Search, perform the following an
 12. **Detailed Company Summary** (Search for "${ticker.toUpperCase()} company overview" and "${ticker.toUpperCase()} business model")
     - Provide a detailed summary of the company's business model, revenue streams, and market position
 
+13. **Core Financials** (Search for "${ticker.toUpperCase()} revenue" and "${ticker.toUpperCase()} annual report")
+    - Last year's total revenue/sales (in millions) and the fiscal year
+    - Anticipated revenue for current fiscal year (from analyst estimates or company guidance)
+    - Total number of employees
+    - Calculate revenue per employee (in thousands)
+
+14. **Efficiency & Productivity Metrics** (Search for "${ticker.toUpperCase()} operating margin" and "${ticker.toUpperCase()} EBITDA")
+    - Operating margin (percentage)
+    - EBITDA per employee (in thousands, if data available)
+    - Sales per square foot (if applicable - mainly for retail companies)
+
+15. **Growth & Forecasting Metrics** (Search for "${ticker.toUpperCase()} growth rate" and "${ticker.toUpperCase()} R&D spending")
+    - 3-year compound annual growth rate (CAGR) for sales
+    - 3-year CAGR for EPS (earnings per share)
+    - Backlog vs. anticipated sales (percentage - for industrials or defense contractors)
+    - R&D spending as percentage of revenue
+
+16. **Profitability & Capital Efficiency** (Search for "${ticker.toUpperCase()} ROIC" and "${ticker.toUpperCase()} free cash flow")
+    - Return on Invested Capital (ROIC) percentage
+    - Free Cash Flow (FCF) margin percentage
+    - Cash conversion cycle (in days)
+
+17. **Ownership & Structure** (Search for "${ticker.toUpperCase()} insider ownership" and "${ticker.toUpperCase()} institutional ownership")
+    - Insider ownership percentage
+    - Institutional ownership percentage
+    - Segment revenue breakdown (if multi-line business) - list major business segments and their revenue percentages
+
+18. **Risk & Volatility Indicators** (Search for "${ticker.toUpperCase()} Altman Z-Score" and "${ticker.toUpperCase()} beta")
+    - Altman Z-Score (financial distress indicator)
+    - Interest coverage ratio
+    - Beta vs. sector benchmark
+    - Beta vs. market index (S&P 500)
+
+19. **Optional Sentiment & Narrative Signals** (Search for "${ticker.toUpperCase()} Glassdoor" and "${ticker.toUpperCase()} patents")
+    - Glassdoor employee rating (out of 5)
+    - Patent count or IP portfolio size (especially for tech/pharma companies)
+    - ESG controversy score (0-10 scale, if available from sustainability reports)
+
 Return your response as a JSON object with this EXACT structure:
 
 {
@@ -697,8 +735,60 @@ Return your response as a JSON object with this EXACT structure:
     "investorRelationsPage": "string (URL)",
     "secFilingsPage": "string (URL)"
   },
-  "companySummary": "string (detailed summary of business model and market position)"
+  "companySummary": "string (detailed summary of business model and market position)",
+  "coreFinancials": {
+    "lastYearRevenue": number (in millions, optional),
+    "lastYearRevenueYear": number (fiscal year, optional),
+    "anticipatedCurrentYearRevenue": number (in millions, optional),
+    "currentFiscalYear": number (optional),
+    "totalEmployees": number (optional),
+    "revenuePerEmployee": number (in thousands, optional)
+  },
+  "efficiencyMetrics": {
+    "operatingMargin": number (percentage, optional),
+    "ebitdaPerEmployee": number (in thousands, optional),
+    "salesPerSquareFoot": number (optional, mainly for retail)
+  },
+  "growthMetrics": {
+    "threeYearSalesCAGR": number (percentage, optional),
+    "threeYearEPSCAGR": number (percentage, optional),
+    "backlogVsAnticipatedSales": number (percentage, optional),
+    "rdSpendPercentOfRevenue": number (percentage, optional)
+  },
+  "profitabilityMetrics": {
+    "roic": number (percentage, optional),
+    "fcfMargin": number (percentage, optional),
+    "cashConversionCycle": number (days, optional)
+  },
+  "ownershipStructure": {
+    "insiderOwnershipPercent": number (optional),
+    "institutionalOwnershipPercent": number (optional),
+    "segmentRevenueBreakdown": [
+      {
+        "segment": "string",
+        "revenuePercent": number,
+        "revenue": number (in millions, optional)
+      }
+    ] (optional array)
+  },
+  "riskIndicators": {
+    "altmanZScore": number (optional),
+    "interestCoverageRatio": number (optional),
+    "betaVsSector": number (optional),
+    "betaVsIndex": number (optional)
+  },
+  "sentimentIndicators": {
+    "glassdoorRating": number (out of 5, optional),
+    "patentCount": number (optional),
+    "esgControversyScore": number (0-10 scale, optional)
+  }
 }
+
+IMPORTANT NOTES:
+- All new financial fields (sections 13-19) are OPTIONAL - if data is not available, omit the field or set to null
+- Use null for unavailable numeric values, not 0
+- Empty arrays [] are acceptable for unavailable array fields
+- Focus on providing as much data as possible, but don't make up values
 
 Respond with ONLY the JSON object. No markdown formatting, no explanations, just valid JSON.`;
   }

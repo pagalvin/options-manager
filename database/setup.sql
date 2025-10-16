@@ -137,6 +137,59 @@ BEGIN
     END IF;
 END $$;
 
+    -- Projection planning tables
+    CREATE TABLE IF NOT EXISTS projection (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(120) NOT NULL,
+        description TEXT,
+        assumed_roc_percent NUMERIC(9,4) NOT NULL DEFAULT 0,
+        projection_start_date DATE NOT NULL,
+        starting_capital NUMERIC(18,2) NOT NULL DEFAULT 0,
+        monthly_infusion NUMERIC(18,2) NOT NULL DEFAULT 0,
+        last_calculated_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'projection_name_unique'
+        ) THEN
+            ALTER TABLE projection
+            ADD CONSTRAINT projection_name_unique UNIQUE(name);
+        END IF;
+    END $$;
+
+    CREATE TABLE IF NOT EXISTS projection_period (
+        id SERIAL PRIMARY KEY,
+        projection_id INTEGER NOT NULL REFERENCES projection(id) ON DELETE CASCADE,
+        period_type VARCHAR(10) NOT NULL CHECK (period_type IN ('MONTH','YEAR')),
+        period_index INTEGER NOT NULL,
+        period_start DATE,
+        period_end DATE,
+        expected_balance NUMERIC(18,2),
+        actual_balance NUMERIC(18,2),
+        is_manual BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'projection_period_unique'
+        ) THEN
+            ALTER TABLE projection_period
+            ADD CONSTRAINT projection_period_unique UNIQUE(projection_id, period_type, period_index);
+        END IF;
+    END $$;
+
+    CREATE INDEX IF NOT EXISTS idx_projection_period_projection_type
+        ON projection_period (projection_id, period_type);
+
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(transaction_date);
 CREATE INDEX IF NOT EXISTS idx_transactions_symbol ON transactions(calculated_symbol);
@@ -169,6 +222,16 @@ CREATE TRIGGER update_options_updated_at
 DROP TRIGGER IF EXISTS update_monthly_performance_updated_at ON monthly_performance;
 CREATE TRIGGER update_monthly_performance_updated_at 
     BEFORE UPDATE ON monthly_performance 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_projection_updated_at ON projection;
+CREATE TRIGGER update_projection_updated_at
+    BEFORE UPDATE ON projection
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_projection_period_updated_at ON projection_period;
+CREATE TRIGGER update_projection_period_updated_at
+    BEFORE UPDATE ON projection_period
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Verify the setup
@@ -205,7 +268,27 @@ UNION ALL
 SELECT 
     'monthly_performance' as table_name, 
     COUNT(*) as count 
-FROM monthly_performance;
+FROM monthly_performance
+UNION ALL
+SELECT 
+    'projection' as table_name,
+    COUNT(*) as count
+FROM projection
+UNION ALL
+SELECT 
+    'projection_period' as table_name,
+    COUNT(*) as count
+FROM projection_period;
+UNION ALL
+SELECT 
+    'projection' as table_name,
+    COUNT(*) as count
+FROM projection
+UNION ALL
+SELECT 
+    'projection_period' as table_name,
+    COUNT(*) as count
+FROM projection_period;
 
 -- Display setup completion message
 SELECT 'Database setup completed successfully!' as message;

@@ -33,6 +33,7 @@ export interface MarginPlanningGridRow {
   likely_assignments: number;
   symbols_not_rollable: string;
   symmbols_rollable: string;
+  symbols_rollable?: string;
   proposed_margin?: number;
   margin_cost_weekly?: number;
   margin_impact: number;

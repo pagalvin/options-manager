@@ -13,6 +13,7 @@ const navigation = [
   { name: 'Options', href: '/options' },
   { name: 'Performance', href: '/performance' },
   { name: 'Cash Flow', href: '/premium-cash-flow' },
+  { name: 'Projections', href: '/projections' },
   // { name: 'Margin Analysis', href: '/margin-analysis' },
   { name: 'Margin Planning', href: '/margin-opportunity-planner' },
   { name: 'Options Analyzer', href: '/analyzer' },

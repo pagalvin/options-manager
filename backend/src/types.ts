@@ -196,6 +196,51 @@ export interface StockAnalysis {
     secFilingsPage: string;
   };
   companySummary?: string;
+  // Enhanced financial metrics
+  coreFinancials?: {
+    lastYearRevenue?: number;
+    lastYearRevenueYear?: number;
+    anticipatedCurrentYearRevenue?: number;
+    currentFiscalYear?: number;
+    totalEmployees?: number;
+    revenuePerEmployee?: number;
+  };
+  efficiencyMetrics?: {
+    operatingMargin?: number;
+    ebitdaPerEmployee?: number;
+    salesPerSquareFoot?: number;
+  };
+  growthMetrics?: {
+    threeYearSalesCAGR?: number;
+    threeYearEPSCAGR?: number;
+    backlogVsAnticipatedSales?: number;
+    rdSpendPercentOfRevenue?: number;
+  };
+  profitabilityMetrics?: {
+    roic?: number;
+    fcfMargin?: number;
+    cashConversionCycle?: number;
+  };
+  ownershipStructure?: {
+    insiderOwnershipPercent?: number;
+    institutionalOwnershipPercent?: number;
+    segmentRevenueBreakdown?: Array<{
+      segment: string;
+      revenuePercent: number;
+      revenue?: number;
+    }>;
+  };
+  riskIndicators?: {
+    altmanZScore?: number;
+    interestCoverageRatio?: number;
+    betaVsSector?: number;
+    betaVsIndex?: number;
+  };
+  sentimentIndicators?: {
+    glassdoorRating?: number;
+    patentCount?: number;
+    esgControversyScore?: number;
+  };
   groundingMetadata?: {
     webSearchQueries?: string[];
     searchEntryPoint?: {

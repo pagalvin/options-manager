@@ -15,7 +15,7 @@
     "clean": "rm -rf backend/dist frontend/dist backend/node_modules frontend/node_modules node_modules"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^9.2.1"
   },
   "keywords": [
     "options",
@@ -28,7 +28,7 @@
   "license": "UNLICENSED",
   "private": true,
   "dependencies": {
-    "@tailwindcss/typography": "^0.5.16",
+    "@tailwindcss/typography": "^0.5.19",
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^15.6.6",
     "remark-gfm": "^4.0.1"

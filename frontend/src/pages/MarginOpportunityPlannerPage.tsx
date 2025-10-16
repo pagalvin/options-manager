@@ -839,15 +839,9 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Week Ending</th>
-                      <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbols (Non-Rollable)</th>
-                      <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Likely Assignments</th>
-                      <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Proposed Margin</th>
-                      <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Margin Impact</th>
-                      <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cumulative Margin Impact</th>
-                      <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Weekly Margin Cost</th>
-                      <th className="px-2 py-3 text-left text-xs w-96 font-medium text-gray-500 uppercase tracking-wider">Notes</th>
-                      <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/12">Week Ending</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-3/12">Key Data</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8/12">Notes</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -892,73 +886,105 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                     // console.log(`MarginOpportunityPlannerPage.tsx: MarginImpact2 = ${marginImpact2} Cumulative Impact = ${cumulativeImpact}, Cumulative Impact 2 = ${cumulativeImpact2}`);
 
                     const marginCost = Math.max(0, 7 * ((cumulativeImpact * 0.119) / 365)); // Assuming 11.9% margin cost
-                    
+                    const nonRollableSymbols = row.symbols_not_rollable?.trim() ? row.symbols_not_rollable : '-';
+                    const rollableSymbols = row.symbols_rollable ?? row.symmbols_rollable ?? '-';
+
                     return (
-                      <tr key={row.week_ending} className="hover:bg-gray-50 transition-colors duration-150">
-                        <td className="px-2 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      <tr key={row.week_ending} className="hover:bg-gray-50 transition-colors duration-150 align-top">
+                        <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 align-top">
                           {new Date(row.week_ending).toLocaleDateString()}
                         </td>
-                        <td className="px-2 py-4 whitespace-nowrap text-sm text-gray-900">
-                          <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">
-                            {row.symbols_not_rollable || '-'}
-                          </span>
+                        <td className="px-3 py-4 align-top">
+                          <div className="overflow-hidden rounded-md border border-gray-200">
+                            <table className="min-w-full divide-y divide-gray-200 text-sm">
+                              <tbody>
+                                <tr>
+                                  <th className="bg-gray-50 px-3 py-2 text-right font-medium text-gray-600">Non-rollable symbols</th>
+                                  <td className="px-3 py-2 text-gray-900">
+                                    <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded inline-block">
+                                      {nonRollableSymbols}
+                                    </span>
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <th className="bg-gray-50 px-3 py-2 text-right font-medium text-gray-600">Rollable symbols</th>
+                                  <td className="px-3 py-2 text-gray-900">
+                                    <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded inline-block">
+                                      {rollableSymbols || '-'}
+                                    </span>
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <th className="bg-gray-50 px-3 py-2 text-right font-medium text-gray-600">Likely Assignment Dollars</th>
+                                  <td className="px-3 py-2 text-right text-gray-900">
+                                    ${Number(row.likely_assignments || 0).toLocaleString()}
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <th className="bg-gray-50 px-3 py-2 text-right font-medium text-gray-600">Proposed Margin</th>
+                                  <td className="px-3 py-2">
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      value={displayProposedMargin}
+                                      onChange={(e) => updatePlanningGridEdit(row.week_ending, 'proposed_margin', e.target.value)}
+                                      className="w-full border-gray-300 rounded-md shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500 text-right"
+                                      placeholder="0.00"
+                                    />
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <th className="bg-gray-50 px-3 py-2 text-right font-medium text-gray-600">Margin Impact</th>
+                                  <td className="px-3 py-2 text-right">
+                                    <span className={`font-medium ${Number(marginImpact2) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                      ${Number(marginImpact2).toLocaleString()}
+                                    </span>
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <th className="bg-gray-50 px-3 py-2 text-right font-medium text-gray-600">Cumulative Margin Impact</th>
+                                  <td className="px-3 py-2 text-right">
+                                    <span className={`font-medium ${cumulativeImpact >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                      ${cumulativeImpact.toLocaleString()}
+                                    </span>
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+                          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <span className="text-xs text-gray-500 italic">
+                              Weekly margin cost est. ${marginCost.toFixed(2)}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              {hasEdits && (
+                                <button
+                                  onClick={() => handleSavePlanningRow(row.week_ending)}
+                                  className="text-blue-600 hover:text-blue-900"
+                                  title="Save changes"
+                                >
+                                  <Save className="h-4 w-4" />
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleDeletePlanningRow(row.week_ending)}
+                                className="text-red-600 hover:text-red-900"
+                                title="Delete this planning row"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
                         </td>
-                        <td className="px-2 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                          ${Number(row.likely_assignments || 0).toLocaleString()}
-                        </td>
-                        <td className="px-2 py-4 whitespace-nowrap">
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={displayProposedMargin}
-                            onChange={(e) => updatePlanningGridEdit(row.week_ending, 'proposed_margin', e.target.value)}
-                            className="w-full border-gray-300 rounded-md shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500 text-right"
-                            placeholder="0.00"
-                          />
-                        </td>
-                        <td className="px-6  py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                          <span className={`font-medium ${Number(marginImpact2) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            ${Number(marginImpact2).toLocaleString()} 
-                          </span>
-                        </td>
-                        <td className="px-2 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                          <span className={`font-medium ${cumulativeImpact >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            ${cumulativeImpact.toLocaleString()}
-                          </span>
-                        </td>
-                        <td className="px-2 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                          {/* {row.margin_cost_weekly ? `$${Number(row.margin_cost_weekly).toFixed(2)}` : '-'} */}
-                          {marginCost && <span> (${marginCost.toFixed(2)})</span>}
-                        </td>
-                        <td className="px-2 py-4 min-w-0 whitespace-nowrap">
+                        <td className="px-3 py-4 align-top">
                           <textarea
                             style={{ padding: '0.5rem' }}
                             value={displayNotes}
                             onChange={(e) => updatePlanningGridEdit(row.week_ending, 'notes', e.target.value)}
-                            rows={displayNotes.split('\n').length}
+                            rows={Math.max(3, displayNotes.split('\n').length)}
                             className="w-full border-gray-300 rounded-md shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500 resize-none"
                             placeholder="Add notes..."
                           />
-                        </td>
-                        <td className="px-2 py-4 whitespace-nowrap">
-                          <div className="flex space-x-2">
-                            {hasEdits && (
-                              <button
-                                onClick={() => handleSavePlanningRow(row.week_ending)}
-                                className="text-blue-600 hover:text-blue-900"
-                                title="Save changes"
-                              >
-                                <Save className="h-4 w-4" />
-                              </button>
-                            )}
-                            <button
-                              onClick={() => handleDeletePlanningRow(row.week_ending)}
-                              className="text-red-600 hover:text-red-900"
-                              title="Delete this planning row"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
                         </td>
                       </tr>
                     );
@@ -989,25 +1015,10 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                 <strong className="text-gray-900">Week Ending:</strong> The Saturday date that marks the end of the options expiration week.
               </div>
               <div>
-                <strong className="text-gray-900">Symbols (Non-Rollable):</strong> Option symbols that will expire this week and are not marked as rollable.
-              </div>
-              <div>
-                <strong className="text-gray-900">Likely Assignments:</strong> The dollar value of option assignments expected this week based on current positions.
-              </div>
-              <div>
-                <strong className="text-gray-900">Proposed Margin:</strong> The margin amount you plan to maintain for this week. Edit this field to adjust your planned margin level.
-              </div>
-              <div>
-                <strong className="text-gray-900">Margin Impact:</strong> The net change in margin for this week (Proposed Margin - Likely Assignments).
-              </div>
-              <div>
-                <strong className="text-gray-900">Cumulative Margin Impact:</strong> Running total of margin changes from all previous weeks plus this week's impact.
-              </div>
-              <div>
-                <strong className="text-gray-900">Weekly Margin Cost:</strong> The cost of maintaining the proposed margin for this week based on your current margin rate.
+                <strong className="text-gray-900">Key Data:</strong> Quick-reference table for non-rollable and rollable symbols, expected assignment dollars, your planned margin for the week, and the resulting margin impacts (including the running cumulative total).
               </div>
               <div className="md:col-span-2 lg:col-span-1">
-                <strong className="text-gray-900">Notes:</strong> Additional notes or comments about this week's margin planning. Use this to track important decisions or reminders.
+                <strong className="text-gray-900">Notes:</strong> Space for context, action items, or assumptions tied to the week's assignments and margin outlook.
               </div>
             </div>
           </div>
@@ -1243,7 +1254,7 @@ const MarginOpportunityPlannerPage: React.FC = () => {
                         {hasOptions && (
                           <div className="flex-1 overflow-hidden">
                             <div className="space-y-0.5 h-full overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
-                              {dayOptions.slice(0, 10).map((option, idx) => (
+                              {dayOptions.slice(0, 99).map((option, idx) => (
                                 <div
                                   key={idx}
                                   className="text-xs bg-orange-200 text-orange-900 px-1 py-0.5 rounded truncate leading-tight"

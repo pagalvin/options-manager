@@ -17,6 +17,7 @@ import { MarginAnalysisPage } from './pages/MarginAnalysis';
 import PremiumCashFlow from './pages/PremiumCashFlow';
 import MarginOpportunityPlannerPage from './pages/MarginOpportunityPlannerPage';
 import { StockSnapshotPage } from './pages/StockSnapshot';
+import { ProjectionsPage } from './pages/ProjectionsPage';
 
 function App() {
   return (
@@ -39,6 +40,7 @@ function App() {
             <Route path="/premium-cash-flow" element={<PremiumCashFlow />} />
             <Route path="/margin-analysis" element={<MarginAnalysisPage />} />
             <Route path="/margin-opportunity-planner" element={<MarginOpportunityPlannerPage />} />
+            <Route path="/projections" element={<ProjectionsPage />} />
             <Route path="/analyzer" element={<OptionsAnalyzer />} />
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/chat/covered-call-report/:symbol" element={<ChatPage />} />

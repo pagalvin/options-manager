@@ -91,6 +91,51 @@ export interface StockAnalysis {
     secFilingsPage: string;
   };
   companySummary?: string;
+  // Enhanced financial metrics
+  coreFinancials?: {
+    lastYearRevenue?: number; // in millions
+    lastYearRevenueYear?: number; // fiscal year
+    anticipatedCurrentYearRevenue?: number; // in millions
+    currentFiscalYear?: number;
+    totalEmployees?: number;
+    revenuePerEmployee?: number; // in thousands
+  };
+  efficiencyMetrics?: {
+    operatingMargin?: number; // percentage
+    ebitdaPerEmployee?: number; // in thousands
+    salesPerSquareFoot?: number; // if applicable (retail)
+  };
+  growthMetrics?: {
+    threeYearSalesCAGR?: number; // percentage
+    threeYearEPSCAGR?: number; // percentage
+    backlogVsAnticipatedSales?: number; // percentage (for industrials/defense)
+    rdSpendPercentOfRevenue?: number; // percentage
+  };
+  profitabilityMetrics?: {
+    roic?: number; // Return on Invested Capital percentage
+    fcfMargin?: number; // Free Cash Flow margin percentage
+    cashConversionCycle?: number; // days
+  };
+  ownershipStructure?: {
+    insiderOwnershipPercent?: number;
+    institutionalOwnershipPercent?: number;
+    segmentRevenueBreakdown?: Array<{
+      segment: string;
+      revenuePercent: number;
+      revenue?: number; // in millions
+    }>;
+  };
+  riskIndicators?: {
+    altmanZScore?: number;
+    interestCoverageRatio?: number;
+    betaVsSector?: number;
+    betaVsIndex?: number;
+  };
+  sentimentIndicators?: {
+    glassdoorRating?: number; // out of 5
+    patentCount?: number;
+    esgControversyScore?: number; // 0-10 scale
+  };
   groundingMetadata?: {
     webSearchQueries?: string[];
     searchEntryPoint?: {
