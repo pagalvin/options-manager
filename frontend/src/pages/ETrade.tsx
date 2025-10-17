@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { AlertCircle, CheckCircle2, RefreshCw, TrendingUp, TrendingDown, Calendar, DollarSign, Target, Activity, Info, BarChart3, FileText, Briefcase } from 'lucide-react';
+import { AlertCircle, CheckCircle2, RefreshCw, TrendingUp, TrendingDown, Calendar, DollarSign, Target, Activity, Info, BarChart3, FileText, Briefcase, Repeat } from 'lucide-react';
 import { FinancialLinks } from '@/components/FinancialLinks';
 import { TransactionBrowser } from '@/components/TransactionBrowser';
 import { OrderBrowser } from '@/components/OrderBrowser';
 import { ETradePositions } from '@/components/ETradePositions';
+import { ETradeRollOpportunities } from '@/components/ETradeRollOpportunities';
+import { etradeAPI } from '@/lib/etradeAPI';
 
 interface StockQuote {
   QuoteResponse: {
@@ -154,7 +156,7 @@ export function ETradePage() {
   const [showFullChain, setShowFullChain] = useState(false);
   
   // Submenu state
-  const [activeSubmenu, setActiveSubmenu] = useState<'quotes' | 'positions' | 'transactions' | 'orders'>('quotes');
+  const [activeSubmenu, setActiveSubmenu] = useState<'quotes' | 'positions' | 'rolls' | 'transactions' | 'orders'>('quotes');
   
   // Read query params (e.g., ?symbol=DVN)
   const [searchParams] = useSearchParams();
@@ -184,6 +186,7 @@ export function ETradePage() {
   useEffect(() => {
     if (sessionId) {
       localStorage.setItem('etrade_session_id', sessionId);
+      etradeAPI.setSessionId(sessionId);
     }
   }, [sessionId]);
 
@@ -265,6 +268,7 @@ export function ETradePage() {
         setAuthenticated(false);
         setSessionId(null);
         localStorage.removeItem('etrade_session_id');
+        etradeAPI.clearSession();
       }
     } catch (err) {
       console.error('Error switching environment:', err);
@@ -284,6 +288,7 @@ export function ETradePage() {
         setSessionId(sid);
       } else {
         localStorage.removeItem('etrade_session_id');
+        etradeAPI.clearSession();
       }
     } catch (err) {
       console.error('Error checking auth status:', err);
@@ -371,7 +376,7 @@ export function ETradePage() {
       });
 
       setAuthenticated(false);
-      setSessionId(null);
+  setSessionId(null);
       setStockQuote(null);
       setOptionChain(null);
       setExpirationDates([]);
@@ -379,6 +384,7 @@ export function ETradePage() {
       setAwaitingVerification(false);
       setVerificationCode('');
       localStorage.removeItem('etrade_session_id');
+  etradeAPI.clearSession();
     } catch (err) {
       console.error('Error during logout:', err);
       setError('Failed to logout properly');
@@ -663,6 +669,7 @@ export function ETradePage() {
                       setAwaitingVerification(false);
                       setVerificationCode('');
                       setSessionId(null);
+                      etradeAPI.clearSession();
                     }}
                     disabled={loading}
                     className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
@@ -766,6 +773,19 @@ export function ETradePage() {
                   </div>
                 </button>
                 <button
+                  onClick={() => setActiveSubmenu('rolls')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeSubmenu === 'rolls'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    <Repeat size={16} />
+                    <span>Roll Planner</span>
+                  </div>
+                </button>
+                <button
                   onClick={() => setActiveSubmenu('transactions')}
                   className={`py-4 px-1 border-b-2 font-medium text-sm ${
                     activeSubmenu === 'transactions'
@@ -788,7 +808,7 @@ export function ETradePage() {
                 >
                   <div className="flex items-center space-x-2">
                     <Target size={16} />
-                    <span>Open Orders</span>
+                    <span>Orders</span>
                   </div>
                 </button>
               </nav>
@@ -1779,6 +1799,8 @@ export function ETradePage() {
           ) : activeSubmenu === 'positions' ? (
             /* Positions submenu */
             <ETradePositions sessionId={sessionId!} />
+          ) : activeSubmenu === 'rolls' ? (
+            <ETradeRollOpportunities sessionId={sessionId!} />
           ) : activeSubmenu === 'transactions' ? (
             /* Transactions submenu */
             <TransactionBrowser />

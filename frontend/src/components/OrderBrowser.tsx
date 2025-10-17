@@ -81,6 +81,7 @@ export function OrderBrowser() {
   const [transactionType, setTransactionType] = useState<'ATNM' | 'BUY' | 'SELL' | 'BUY_TO_COVER' | 'SELL_SHORT' | ''>('');
   const [marketSession, setMarketSession] = useState<'REGULAR' | 'EXTENDED' | ''>('');
   const [fetchAllPages, setFetchAllPages] = useState(false);
+  const [resultsPerPage, setResultsPerPage] = useState(100); // Number of results per page
   const [pageDelay, setPageDelay] = useState(1000); // 1 second delay for orders
   
   // Quick filters
@@ -130,7 +131,7 @@ export function OrderBrowser() {
 
       const ordersData = fetchAllPages 
         ? await etradeAPI.getAllOrders(selectedAccount, options)
-        : await etradeAPI.getOrders(selectedAccount, { ...options, count: 25 });
+        : await etradeAPI.getOrders(selectedAccount, { ...options, count: resultsPerPage });
       
       setOrders(ordersData.Order || []);
     } catch (err) {
@@ -306,7 +307,7 @@ export function OrderBrowser() {
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-semibold flex items-center space-x-2">
             <FileText size={24} />
-            <span>Open Orders</span>
+            <span>Orders</span>
           </h2>
           <button
             onClick={loadOrders}
@@ -513,6 +514,22 @@ export function OrderBrowser() {
                   <span className="text-sm text-gray-700">Fetch all pages</span>
                 </label>
                 
+                {!fetchAllPages && (
+                  <div className="flex items-center space-x-2">
+                    <label className="text-sm text-gray-700">Results per page:</label>
+                    <select
+                      value={resultsPerPage}
+                      onChange={(e) => setResultsPerPage(parseInt(e.target.value))}
+                      className="px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    >
+                      <option value="25">25</option>
+                      <option value="50">50</option>
+                      <option value="100">100</option>
+                      <option value="200">200</option>
+                    </select>
+                  </div>
+                )}
+                
                 {fetchAllPages && (
                   <div className="flex items-center space-x-2">
                     <label className="text-sm text-gray-700">Page delay:</label>
@@ -558,6 +575,106 @@ export function OrderBrowser() {
           </div>
         )}
 
+        {/* Summary Cards */}
+        {orders.length > 0 && (
+          <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Total Orders Card */}
+            <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-6 rounded-lg shadow-sm border border-blue-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-blue-600 uppercase tracking-wide">Total Orders</p>
+                  <p className="text-3xl font-bold text-blue-900 mt-2">{orders.length}</p>
+                  <div className="mt-3 flex items-center space-x-4 text-xs">
+                    <div className="flex items-center space-x-1">
+                      <Clock size={12} className="text-blue-600" />
+                      <span className="text-blue-700">
+                        {orders.filter(o => {
+                          const detail = getMainOrderDetail(o);
+                          return detail?.status === 'OPEN';
+                        }).length} Open
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <CheckCircle2 size={12} className="text-green-600" />
+                      <span className="text-blue-700">
+                        {orders.filter(o => {
+                          const detail = getMainOrderDetail(o);
+                          return detail?.status === 'EXECUTED';
+                        }).length} Executed
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <FileText className="text-blue-400" size={40} />
+              </div>
+            </div>
+
+            {/* Open Orders Value Card */}
+            <div className="bg-gradient-to-br from-amber-50 to-amber-100 p-6 rounded-lg shadow-sm border border-amber-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-amber-600 uppercase tracking-wide">Open Orders Value</p>
+                  <p className="text-3xl font-bold text-amber-900 mt-2">
+                    {formatCurrency(
+                      orders
+                        .filter(o => {
+                          const detail = getMainOrderDetail(o);
+                          return detail?.status === 'OPEN';
+                        })
+                        .reduce((sum, o) => {
+                          const detail = getMainOrderDetail(o);
+                          return sum + (detail?.orderValue || 0);
+                        }, 0)
+                    )}
+                  </p>
+                  <div className="mt-3 text-xs text-amber-700">
+                    {orders.filter(o => {
+                      const detail = getMainOrderDetail(o);
+                      return detail?.status === 'OPEN';
+                    }).length} pending order{orders.filter(o => {
+                      const detail = getMainOrderDetail(o);
+                      return detail?.status === 'OPEN';
+                    }).length !== 1 ? 's' : ''}
+                  </div>
+                </div>
+                <Clock className="text-amber-400" size={40} />
+              </div>
+            </div>
+
+            {/* Executed Orders Value Card */}
+            <div className="bg-gradient-to-br from-green-50 to-green-100 p-6 rounded-lg shadow-sm border border-green-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-green-600 uppercase tracking-wide">Executed Orders Value</p>
+                  <p className="text-3xl font-bold text-green-900 mt-2">
+                    {formatCurrency(
+                      orders
+                        .filter(o => {
+                          const detail = getMainOrderDetail(o);
+                          return detail?.status === 'EXECUTED';
+                        })
+                        .reduce((sum, o) => {
+                          const detail = getMainOrderDetail(o);
+                          return sum + (detail?.orderValue || 0);
+                        }, 0)
+                    )}
+                  </p>
+                  <div className="mt-3 text-xs text-green-700">
+                    {orders.filter(o => {
+                      const detail = getMainOrderDetail(o);
+                      return detail?.status === 'EXECUTED';
+                    }).length} completed order{orders.filter(o => {
+                      const detail = getMainOrderDetail(o);
+                      return detail?.status === 'EXECUTED';
+                    }).length !== 1 ? 's' : ''}
+                  </div>
+                </div>
+                <CheckCircle2 className="text-green-400" size={40} />
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Orders Table */}
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
@@ -592,6 +709,7 @@ export function OrderBrowser() {
                 </th>
               </tr>
             </thead>
+            
             <tbody className="bg-white divide-y divide-gray-200">
               {orders.length === 0 ? (
                 <tr>
@@ -711,45 +829,6 @@ export function OrderBrowser() {
           </table>
         </div>
 
-        {/* Summary */}
-        {orders.length > 0 && (
-          <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-600">
-                Total Orders: <span className="font-semibold">{orders.length}</span>
-              </div>
-              <div className="flex items-center space-x-4 text-sm">
-                <div className="flex items-center space-x-1">
-                  <Clock size={14} className="text-blue-600" />
-                  <span className="text-gray-600">
-                    Open: <span className="font-semibold">{orders.filter(o => {
-                      const detail = getMainOrderDetail(o);
-                      return detail?.status === 'OPEN';
-                    }).length}</span>
-                  </span>
-                </div>
-                <div className="flex items-center space-x-1">
-                  <CheckCircle2 size={14} className="text-green-600" />
-                  <span className="text-gray-600">
-                    Executed: <span className="font-semibold">{orders.filter(o => {
-                      const detail = getMainOrderDetail(o);
-                      return detail?.status === 'EXECUTED';
-                    }).length}</span>
-                  </span>
-                </div>
-                <div className="flex items-center space-x-1">
-                  <XCircle size={14} className="text-red-600" />
-                  <span className="text-gray-600">
-                    Cancelled: <span className="font-semibold">{orders.filter(o => {
-                      const detail = getMainOrderDetail(o);
-                      return detail?.status === 'CANCELLED';
-                    }).length}</span>
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

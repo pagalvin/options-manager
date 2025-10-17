@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   LineChart,
@@ -57,12 +57,165 @@ interface TransactionTypeData {
   color: string;
 }
 
+type MutableDailyStats = {
+  netPremium: number;
+  totalTrades: number;
+  securities: Set<string>;
+};
+
+interface DayCellStats {
+  netPremium: number;
+  totalTrades: number;
+  securities: string[];
+}
+
+interface DayCellData {
+  date: Date;
+  dateKey: string;
+  isCurrentMonth: boolean;
+  holidayName?: string;
+  stats?: DayCellStats;
+  hasData: boolean;
+}
+
+interface WeekSummary {
+  totalPremium: number;
+  averagePremiumPerTradingDay: number | null;
+  totalTrades: number;
+  tradingDayCount: number;
+}
+
+interface WeekRow {
+  days: DayCellData[];
+  summary: WeekSummary;
+}
+
+const formatDateKey = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const addObservedHoliday = (holidays: Map<string, string>, date: Date, name: string) => {
+  const actual = new Date(date);
+  const observed = new Date(date);
+  const actualTime = actual.getTime();
+  const day = actual.getDay();
+
+  if (day === 6) {
+    observed.setDate(actual.getDate() - 1);
+  } else if (day === 0) {
+    observed.setDate(actual.getDate() + 1);
+  }
+
+  if (observed.getFullYear() !== actual.getFullYear()) {
+    holidays.set(formatDateKey(actual), name);
+    return;
+  }
+
+  const key = formatDateKey(observed);
+  const label = observed.getTime() === actualTime ? name : `${name} (Observed)`;
+  holidays.set(key, label);
+};
+
+const nthWeekdayOfMonth = (year: number, month: number, weekday: number, n: number) => {
+  const firstDay = new Date(year, month, 1);
+  const firstWeekday = firstDay.getDay();
+  const offset = ((7 + weekday - firstWeekday) % 7) + 7 * (n - 1);
+  return new Date(year, month, 1 + offset);
+};
+
+const lastWeekdayOfMonth = (year: number, month: number, weekday: number) => {
+  const lastDay = new Date(year, month + 1, 0);
+  const diff = (lastDay.getDay() - weekday + 7) % 7;
+  lastDay.setDate(lastDay.getDate() - diff);
+  return lastDay;
+};
+
+const calculateEasterSunday = (year: number) => {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+};
+
+const getMarketHolidays = (year: number) => {
+  const holidays = new Map<string, string>();
+
+  addObservedHoliday(holidays, new Date(year, 0, 1), "New Year's Day");
+
+  const mlkDay = nthWeekdayOfMonth(year, 0, 1, 3); // Third Monday in January
+  holidays.set(formatDateKey(mlkDay), 'Martin Luther King Jr. Day');
+
+  const presidentsDay = nthWeekdayOfMonth(year, 1, 1, 3); // Third Monday in February
+  holidays.set(formatDateKey(presidentsDay), "Presidents' Day");
+
+  const easterSunday = calculateEasterSunday(year);
+  const goodFriday = new Date(easterSunday);
+  goodFriday.setDate(goodFriday.getDate() - 2);
+  holidays.set(formatDateKey(goodFriday), 'Good Friday');
+
+  const memorialDay = lastWeekdayOfMonth(year, 4, 1); // Last Monday in May
+  holidays.set(formatDateKey(memorialDay), 'Memorial Day');
+
+  addObservedHoliday(holidays, new Date(year, 5, 19), 'Juneteenth');
+
+  addObservedHoliday(holidays, new Date(year, 6, 4), 'Independence Day');
+
+  const laborDay = nthWeekdayOfMonth(year, 8, 1, 1); // First Monday in September
+  holidays.set(formatDateKey(laborDay), 'Labor Day');
+
+  const thanksgiving = nthWeekdayOfMonth(year, 10, 4, 4); // Fourth Thursday in November
+  holidays.set(formatDateKey(thanksgiving), 'Thanksgiving Day');
+
+  addObservedHoliday(holidays, new Date(year, 11, 25), 'Christmas Day');
+
+  return holidays;
+};
+
+const formatCurrency = (value: number) => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value);
+};
+
+const TRADE_EXCLUDED_TYPES = new Set(['Online Transfer', 'Transfer']);
+
+const isTradingTransaction = (transaction: Transaction) => {
+  if (TRADE_EXCLUDED_TYPES.has(transaction.transaction_type)) {
+    return false;
+  }
+  return transaction.security_type === 'OPTN' || transaction.security_type === 'EQ';
+};
+
+const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
 export function Performance() {
   const navigate = useNavigate();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedSymbol, setSelectedSymbol] = useState<string>('ALL');
+  const [activeTab, setActiveTab] = useState<'overview' | 'calendar'>('overview');
+  const [selectedCalendarMonth, setSelectedCalendarMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
 
   // Helper function to navigate to transaction analysis with date range and symbol
   const navigateToTransactionAnalysis = (period: string, symbol?: string) => {
@@ -262,6 +415,138 @@ export function Performance() {
     fetchTransactions();
   }, []);
 
+  const optionSymbols = Array.from(
+    new Set(
+      transactions
+        .filter(t => t.security_type === 'OPTN' && t.calculated_symbol && t.calculated_symbol.trim() !== '')
+        .map(t => t.calculated_symbol)
+    )
+  ).sort();
+
+  const calendarData = useMemo(() => {
+    const monthStart = new Date(selectedCalendarMonth.getFullYear(), selectedCalendarMonth.getMonth(), 1);
+    const targetYear = monthStart.getFullYear();
+    const targetMonth = monthStart.getMonth();
+    const holidays = getMarketHolidays(targetYear);
+
+    const filteredTransactions = transactions.filter(transaction => {
+      const txDate = new Date(transaction.transaction_date);
+      if (txDate.getFullYear() !== targetYear || txDate.getMonth() !== targetMonth) {
+        return false;
+      }
+      if (selectedSymbol !== 'ALL') {
+        return transaction.calculated_symbol === selectedSymbol;
+      }
+      return true;
+    });
+
+    const dailyMap = new Map<string, MutableDailyStats>();
+
+    const getDayStats = (dateKey: string) => {
+      if (!dailyMap.has(dateKey)) {
+        dailyMap.set(dateKey, {
+          netPremium: 0,
+          totalTrades: 0,
+          securities: new Set<string>()
+        });
+      }
+      return dailyMap.get(dateKey)!;
+    };
+
+    filteredTransactions.forEach(transaction => {
+      const txDate = new Date(transaction.transaction_date);
+      const dateKey = formatDateKey(txDate);
+      const stats = getDayStats(dateKey);
+
+      if (transaction.security_type === 'OPTN') {
+        stats.netPremium += Number(transaction.amount) || 0;
+      }
+
+      if (isTradingTransaction(transaction)) {
+        stats.totalTrades += 1;
+        const symbol = transaction.calculated_symbol?.trim() || transaction.symbol?.trim();
+        if (symbol) {
+          stats.securities.add(symbol);
+        }
+      }
+    });
+
+    const totals = Array.from(dailyMap.values()).reduce(
+      (acc, stats) => {
+        if (stats.securities.size > 0) {
+          acc.totalPremium += stats.netPremium;
+          acc.totalTrades += stats.totalTrades;
+        }
+        return acc;
+      },
+      { totalPremium: 0, totalTrades: 0 }
+    );
+
+    const calendarStart = new Date(targetYear, targetMonth, 1);
+    calendarStart.setDate(calendarStart.getDate() - calendarStart.getDay());
+
+    const monthEnd = new Date(targetYear, targetMonth + 1, 0);
+    const calendarEnd = new Date(monthEnd);
+    calendarEnd.setDate(calendarEnd.getDate() + (6 - calendarEnd.getDay()));
+
+    const weeks: WeekRow[] = [];
+    const cursor = new Date(calendarStart);
+
+    while (cursor <= calendarEnd) {
+      const days: DayCellData[] = [];
+
+      for (let i = 0; i < 7; i++) {
+        const dayDate = new Date(cursor);
+        const dateKey = formatDateKey(dayDate);
+        const baseStats = dailyMap.get(dateKey);
+        const stats = baseStats
+          ? {
+              netPremium: baseStats.netPremium,
+              totalTrades: baseStats.totalTrades,
+              securities: Array.from(baseStats.securities).sort()
+            }
+          : undefined;
+
+        const hasData = !!stats && stats.securities.length > 0;
+        const isCurrentMonth = dayDate.getMonth() === targetMonth;
+        const holidayName = holidays.get(dateKey);
+
+        days.push({
+          date: new Date(dayDate),
+          dateKey,
+          stats,
+          isCurrentMonth,
+          holidayName,
+          hasData
+        });
+
+        cursor.setDate(cursor.getDate() + 1);
+      }
+
+      const activeDays = days.filter(day => day.isCurrentMonth && day.hasData);
+      const totalPremium = activeDays.reduce((sum, day) => sum + (day.stats?.netPremium ?? 0), 0);
+      const totalTrades = activeDays.reduce((sum, day) => sum + (day.stats?.totalTrades ?? 0), 0);
+      const tradingDayCount = activeDays.length;
+      const averagePremiumPerTradingDay = tradingDayCount > 0 ? totalPremium / tradingDayCount : null;
+
+      weeks.push({
+        days,
+        summary: {
+          totalPremium,
+          totalTrades,
+          tradingDayCount,
+          averagePremiumPerTradingDay
+        }
+      });
+    }
+
+    return {
+      monthLabel: monthStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+      weeks,
+      totals
+    };
+  }, [selectedCalendarMonth, selectedSymbol, transactions]);
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -308,13 +593,201 @@ export function Performance() {
   })();
 
   // Unique option symbols for filter
-  const optionSymbols = Array.from(
-    new Set(
-      transactions
-        .filter(t => t.security_type === 'OPTN' && t.calculated_symbol && t.calculated_symbol.trim() !== '')
-        .map(t => t.calculated_symbol)
-    )
-  ).sort();
+  const goToPreviousMonth = () => {
+    setSelectedCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const goToNextMonth = () => {
+    setSelectedCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  const renderCalendarTab = () => {
+    const todayKey = formatDateKey(new Date());
+
+    return (
+      <div className="space-y-6">
+        <div className="bg-white p-6 rounded-lg shadow space-y-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">Performance Calendar</h2>
+              <p className="text-sm text-gray-500">
+                Track net premium, trade totals, and symbols traded for each day. Summaries roll up weekly and monthly totals.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={goToPreviousMonth}
+                className="px-3 py-1.5 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-100"
+              >
+                Previous
+              </button>
+              <div className="min-w-[10rem] text-center">
+                <p className="text-lg font-semibold text-gray-900">{calendarData.monthLabel}</p>
+              </div>
+              <button
+                type="button"
+                onClick={goToNextMonth}
+                className="px-3 py-1.5 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-100"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-xs uppercase tracking-wide text-blue-600">Total Premium</p>
+                <p className={`text-xl font-semibold ${calendarData.totals.totalPremium >= 0 ? 'text-blue-700' : 'text-red-600'}`}>
+                  {formatCurrency(calendarData.totals.totalPremium)}
+                </p>
+                <p className="text-xs text-blue-600 mt-1">Across {calendarData.monthLabel}</p>
+              </div>
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                <p className="text-xs uppercase tracking-wide text-purple-600">Total Trades</p>
+                <p className="text-xl font-semibold text-purple-700">{calendarData.totals.totalTrades}</p>
+                <p className="text-xs text-purple-600 mt-1">Trading days with activity only</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label htmlFor="calendarSymbolFilter" className="text-sm text-gray-600">Symbol:</label>
+              <select
+                id="calendarSymbolFilter"
+                className="border border-gray-300 rounded px-2 py-1 text-sm"
+                value={selectedSymbol}
+                onChange={(event) => setSelectedSymbol(event.target.value)}
+              >
+                <option value="ALL">All</option>
+                {optionSymbols.map(symbol => (
+                  <option key={`calendar-${symbol}`} value={symbol}>{symbol}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <div className="grid min-w-[720px] grid-cols-8 gap-2">
+              {DAYS_OF_WEEK.map(day => (
+                <div
+                  key={`header-${day}`}
+                  className="text-center text-sm font-semibold text-gray-600 uppercase tracking-wide"
+                >
+                  {day}
+                </div>
+              ))}
+              <div className="text-center text-sm font-semibold text-gray-600 uppercase tracking-wide">
+                Weekly Summary
+              </div>
+
+              {calendarData.weeks.map((week, weekIndex) => (
+                <Fragment key={`week-${weekIndex}`}>
+                  {week.days.map(day => {
+                    const isToday = day.dateKey === todayKey;
+                    const borderClass = day.hasData ? 'border-blue-300' : 'border-gray-200';
+                    const baseBgClass = day.isCurrentMonth ? 'bg-white' : 'bg-gray-50';
+                    const textClass = day.isCurrentMonth ? 'text-gray-900' : 'text-gray-400';
+                    const todayRing = isToday ? 'ring-1 ring-blue-400' : '';
+
+                    const netPremiumClass = day.stats
+                      ? day.stats.netPremium > 0
+                        ? 'text-green-600'
+                        : day.stats.netPremium < 0
+                          ? 'text-red-600'
+                          : 'text-gray-500'
+                      : 'text-gray-500';
+
+                    return (
+                      <div
+                        key={day.dateKey}
+                        className={`border ${borderClass} ${baseBgClass} ${textClass} ${todayRing} rounded-md p-2 min-h-[130px] flex flex-col gap-2 transition-colors`}
+                      >
+                        <div className="flex items-center justify-between text-sm font-semibold">
+                          <span>{day.date.getDate()}</span>
+                          {day.hasData && day.stats && (
+                            <span className={`${netPremiumClass} text-xs font-bold`}>
+                              {formatCurrency(day.stats.netPremium)}
+                            </span>
+                          )}
+                        </div>
+
+                        {day.holidayName && (
+                          <div className="text-xs font-semibold text-red-600">
+                            {day.holidayName}
+                          </div>
+                        )}
+
+                        {day.hasData && day.stats && (
+                          <div className="space-y-1 text-xs">
+                            <div className="flex justify-between text-gray-600">
+                              <span>Trades</span>
+                              <span className="font-semibold text-gray-800">{day.stats.totalTrades}</span>
+                            </div>
+                            <div className="text-gray-600">
+                              <p className="font-medium text-gray-700">Securities</p>
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {day.stats.securities.slice(0, 3).map(symbol => (
+                                  <span
+                                    key={`${day.dateKey}-${symbol}`}
+                                    className="px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-700 text-[11px] font-medium"
+                                  >
+                                    {symbol}
+                                  </span>
+                                ))}
+                                {day.stats.securities.length > 3 && (
+                                  <span className="px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-700 text-[11px] font-medium">
+                                    +{day.stats.securities.length - 3}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  <div
+                    key={`summary-${weekIndex}`}
+                    className="border border-blue-200 bg-blue-50 rounded-md p-2 min-h-[130px] flex flex-col justify-between"
+                  >
+                    <div>
+                      <p className="text-xs font-semibold text-blue-600">Week Totals</p>
+                      <p className={`text-sm font-bold ${week.summary.totalPremium >= 0 ? 'text-blue-700' : 'text-red-600'}`}>
+                        {formatCurrency(week.summary.totalPremium)}
+                      </p>
+                    </div>
+                    <div className="space-y-1 text-xs text-blue-700">
+                      <div className="flex justify-between">
+                        <span>Average / Day</span>
+                        <span className="font-semibold">
+                          {week.summary.averagePremiumPerTradingDay !== null
+                            ? formatCurrency(week.summary.averagePremiumPerTradingDay)
+                            : '—'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Total Trades</span>
+                        <span className="font-semibold">{week.summary.totalTrades}</span>
+                      </div>
+                      <div className="flex justify-between text-[11px] text-blue-600">
+                        <span>Active Days</span>
+                        <span className="font-semibold">{week.summary.tradingDayCount}</span>
+                      </div>
+                    </div>
+                  </div>
+                </Fragment>
+              ))}
+            </div>
+          </div>
+
+          <p className="text-xs text-gray-500">
+            Days without trades remain empty. Net premium only appears when at least one security traded that day.
+          </p>
+        </div>
+      </div>
+    );
+  };
 
   // Weekly net premium data starting from threshold week
   const weeklyNetPremiumData = (() => {
@@ -1189,6 +1662,38 @@ export function Performance() {
   return (
     <div className="space-y-6">
       <h1 className="text-3xl font-bold">Performance Analysis</h1>
+
+      <div className="border-b border-gray-200">
+        <nav className="-mb-px flex space-x-6">
+          <button
+            type="button"
+            onClick={() => setActiveTab('overview')}
+            className={`${
+              activeTab === 'overview'
+                ? 'border-b-2 border-blue-600 text-blue-600'
+                : 'border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            } pb-2 text-sm font-medium`}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('calendar')}
+            className={`${
+              activeTab === 'calendar'
+                ? 'border-b-2 border-blue-600 text-blue-600'
+                : 'border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            } pb-2 text-sm font-medium flex items-center gap-2`}
+          >
+            Calendar View
+          </button>
+        </nav>
+      </div>
+
+      {activeTab === 'calendar' ? (
+        renderCalendarTab()
+      ) : (
+        <div className="space-y-6">
 
       {/* New Combined Performance Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -2347,6 +2852,8 @@ export function Performance() {
           </table>
         </div>
       </div>
+        </div>
+      )}
     </div>
   );
 }
