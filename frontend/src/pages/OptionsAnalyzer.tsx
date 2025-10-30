@@ -1065,6 +1065,7 @@ export function OptionsAnalyzer() {
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Security Symbol *
               </label>
+              <div className='flex space-x-2'>
               <input
                 type="text"
                 name="security"
@@ -1074,6 +1075,17 @@ export function OptionsAnalyzer() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="e.g., AAPL"
               />
+                <button
+                  type="button"
+                  onClick={updateStrategy}
+                  disabled={updatingStrategy || !formData.security.trim()}
+                  className="px-3 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-sm whitespace-nowrap flex items-center space-x-1"
+                  title="Use E*TRADE data to pick the minimal 1%+ ITM call"
+                >
+                  {updatingStrategy ? <RefreshCw className="animate-spin" size={16} /> : <Wand2 size={16} />}
+                  <span>Update strategy</span>
+                </button>
+                </div>
             </div>
 
             <div>
@@ -1090,7 +1102,7 @@ export function OptionsAnalyzer() {
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="0.00"
                 />
-                <button
+                {/* <button
                   type="button"
                   onClick={fetchMarketPrice}
                   disabled={fetchingPrice || !formData.security.trim()}
@@ -1098,23 +1110,13 @@ export function OptionsAnalyzer() {
                   title="Fetch current market price"
                 >
                   {fetchingPrice ? '⏳' : '💲'}
-                </button>
-                <button
-                  type="button"
-                  onClick={updateStrategy}
-                  disabled={updatingStrategy || !formData.security.trim()}
-                  className="px-3 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-sm whitespace-nowrap flex items-center space-x-1"
-                  title="Use E*TRADE data to pick the minimal 1%+ ITM call"
-                >
-                  {updatingStrategy ? <RefreshCw className="animate-spin" size={16} /> : <Wand2 size={16} />}
-                  <span>Update strategy</span>
-                </button>
+                </button> */}
               </div>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Margin Requirement Percentage
+                <a href="https://us.etrade.com/etx/pxy/portfolios/margin" target="_blank" rel="noopener noreferrer">Margin Requirement Percentage</a>
               </label>
               <input
                 type="number"
@@ -1391,6 +1393,11 @@ export function OptionsAnalyzer() {
                   </th>
                   <th 
                     className={`${baseHeaderRowStyles} text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100`}
+                    >
+                      Margin Impact
+                    </th>
+                  <th 
+                    className={`${baseHeaderRowStyles} text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100`}
                     onClick={() => handleSort('net_on_strike')}
                   >
                     <div className="flex items-center justify-end space-x-1">
@@ -1479,6 +1486,9 @@ export function OptionsAnalyzer() {
                   const marginInterestPerWeek = calculateMarginInterestPerWeek(entry.lots || null, entry.market_price || null, entry.premium_per_contract || null);
                   const marginInterestPerMonth = calculateMarginInterestPerMonth(entry.lots || null, entry.market_price || null, entry.premium_per_contract || null);
                   const netGainWhenMargined = calculateNetGainWhenMargined(entry.lots || null, entry.market_price || null, entry.margin_requirement_percentage || null, entry.strike_price || null, entry.premium_per_contract || null, entry.option_date || null);
+                  
+                  const marginRate = entry.margin_requirement_percentage ?? 100;
+                  const marginImpact = (marginRate/100) * (entry.market_price || 0) * (entry.lots ?? 1) * 100;
 
                   return (
                     <tr key={entry.id} className="hover:bg-gray-50">
@@ -1576,6 +1586,9 @@ export function OptionsAnalyzer() {
                       </td>
                       <td className={`${baseRowStyles} text-sm text-gray-900 text-right`}>
                         {cashNeeded !== null ? `$${formatNumber(cashNeeded)}` : '-'}
+                      </td>
+                      <td className={`${baseRowStyles} text-sm text-gray-900 text-right`}>
+                        {formatNumber(marginImpact, 2)}
                       </td>
                       <td className={`${baseRowStyles} text-sm text-gray-900 text-right`}>
                         {netOnStrike !== null ? (

@@ -74,7 +74,7 @@ export function OrderBrowser() {
   
   // Filter states
   const [symbol, setSymbol] = useState('');
-  const [status, setStatus] = useState<'OPEN' | 'EXECUTED' | 'CANCELLED' | 'INDIVIDUAL_FILLS' | 'CANCEL_REQUESTED' | 'EXPIRED' | 'REJECTED' | ''>('OPEN'); // Default to OPEN orders
+  const [status, setStatus] = useState<'OPEN' | 'EXECUTED' | 'CANCELLED' | 'INDIVIDUAL_FILLS' | 'CANCEL_REQUESTED' | 'EXPIRED' | 'REJECTED' | ''>(''); // Default to empty
   const [fromDate, setFromDate] = useState(''); // Default to empty (last 30 days)
   const [toDate, setToDate] = useState('');
   const [securityType, setSecurityType] = useState<'EQ' | 'OPTN' | 'MMF' | 'BOND' | ''>('');
@@ -89,6 +89,10 @@ export function OrderBrowser() {
 
   useEffect(() => {
     loadAccounts();
+
+    const today = new Date();
+    setFromDate(formatDateForAPI(new Date(today.getFullYear(), today.getMonth(), today.getDate())));
+    setToDate(formatDateForAPI(today));
   }, []);
 
   useEffect(() => {

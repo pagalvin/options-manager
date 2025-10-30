@@ -172,11 +172,20 @@ const isReasonableRoll = (expirationDate: Date | null): boolean => {
   if (!expirationDate) {
     return false;
   }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
   const rollExpiration = addDays(expirationDate, ROLL_STEP_DAYS);
-  const cutoff = addDays(new Date(), ROLL_MAX_WEEKS * 7);
+  const cutoff = addDays(today, ROLL_MAX_WEEKS * 7);
+  
+  const result = rollExpiration <= cutoff;
+  
+  // Log for debugging
+  if (!result) {
+    console.log(`isReasonableRoll=false: expiration=${expirationDate.toISOString().split('T')[0]}, rollExpiration=${rollExpiration.toISOString().split('T')[0]}, cutoff=${cutoff.toISOString().split('T')[0]}`);
+  }
 
   // Future rule expansion goes here – add additional filters without touching the core predicate above.
-  return rollExpiration <= cutoff;
+  return result;
 };
 
 const formatCurrency = (value: number | null | undefined): string => {
@@ -423,14 +432,17 @@ export const ETradeRollOpportunities: React.FC<ETradeRollOpportunitiesProps> = (
     };
 
     const parseOptionChainCalls = (data: unknown): RollStrikeOption[] => {
-      const optionPairs = Array.isArray((data as any)?.optionPairs)
-        ? (data as any).optionPairs
-        : Array.isArray((data as any)?.OptionPair)
-          ? (data as any).OptionPair
+      // Unwrap OptionChainResponse if present
+      const chainData = (data as any)?.OptionChainResponse ?? data;
+      
+      const optionPairs = Array.isArray(chainData?.optionPairs)
+        ? chainData.optionPairs
+        : Array.isArray(chainData?.OptionPair)
+          ? chainData.OptionPair
           : [];
 
       return optionPairs
-        .map((pair: any) => pair?.Call ?? pair?.optioncall)
+        .map((pair: any) => pair?.Call ?? pair?.call)
         .filter((call: unknown): call is Record<string, unknown> => Boolean(call))
         .map((call: Record<string, unknown>): RollStrikeOption | null => {
           const strike = parseNumber((call as any)?.strikePrice);
@@ -537,15 +549,20 @@ export const ETradeRollOpportunities: React.FC<ETradeRollOpportunitiesProps> = (
         normalizedCurrent.setHours(0, 0, 0, 0);
       }
 
+      // Calculate days from current expiration (for rolling), not from today
+      const referenceDate = normalizedCurrent || today;
+
       const enriched = expirations
         .map(exp => {
           const date = new Date(exp.year, exp.month - 1, exp.day);
           date.setHours(0, 0, 0, 0);
           const daysOut = Math.ceil((date.getTime() - today.getTime()) / MS_PER_DAY);
+          const daysFromCurrent = Math.ceil((date.getTime() - referenceDate.getTime()) / MS_PER_DAY);
           return {
             expiration: exp,
             date,
             daysOut,
+            daysFromCurrent,
           };
         })
         .filter(item => item.daysOut > 0 && (!normalizedCurrent || item.date.getTime() > normalizedCurrent.getTime()));
@@ -554,14 +571,24 @@ export const ETradeRollOpportunities: React.FC<ETradeRollOpportunitiesProps> = (
         return null;
       }
 
-      const windowMatches = enriched.filter(item => item.daysOut >= 7 && item.daysOut <= 10);
+      // Look for expirations 7-10 days after the current expiration
+      const windowMatches = enriched.filter(item => item.daysFromCurrent >= 7 && item.daysFromCurrent <= 10);
       if (windowMatches.length > 0) {
-        const sortedWindow = [...windowMatches].sort((a, b) => a.daysOut - b.daysOut);
-        return sortedWindow[0];
+        const sortedWindow = [...windowMatches].sort((a, b) => a.daysFromCurrent - b.daysFromCurrent);
+        return {
+          expiration: sortedWindow[0].expiration,
+          date: sortedWindow[0].date,
+          daysOut: sortedWindow[0].daysOut,
+        };
       }
 
-      const sortedAll = [...enriched].sort((a, b) => a.daysOut - b.daysOut);
-      return sortedAll[0];
+      // If no 7-10 day window, take the nearest future expiration
+      const sortedAll = [...enriched].sort((a, b) => a.daysFromCurrent - b.daysFromCurrent);
+      return {
+        expiration: sortedAll[0].expiration,
+        date: sortedAll[0].date,
+        daysOut: sortedAll[0].daysOut,
+      };
     };
 
     const processCandidate = async (candidate: RollCandidate): Promise<RollCandidate> => {
@@ -595,30 +622,37 @@ export const ETradeRollOpportunities: React.FC<ETradeRollOpportunitiesProps> = (
         const currentChain = await fetchChain(candidate.symbol, currentExpiration);
         const matchingOption = currentChain.find(option => Math.abs(option.strike - strike) < 1e-3);
 
-        const buyToCloseCost = matchingOption && isFiniteNumber(matchingOption.ask)
+        let buyToCloseCost = matchingOption && isFiniteNumber(matchingOption.ask)
           ? matchingOption.ask
           : matchingOption && isFiniteNumber(matchingOption.bid)
             ? matchingOption.bid
             : null;
 
+        // If we can't get a price for the current leg, use a nominal value
+        // This is common for options very close to expiration that are OTM
         if (!isFiniteNumber(buyToCloseCost) || buyToCloseCost <= 0) {
-          return {
-            ...baseResult,
-            suggestionError: 'Unable to price current leg',
-          };
+          console.log(`No market price for ${candidate.symbol} strike ${strike} - using nominal $0.01`);
+          buyToCloseCost = 0.01;
         }
 
         const expirations = await fetchExpirations(candidate.symbol);
+        console.log(`${candidate.symbol}: Found ${expirations.length} expirations`);
         const target = selectTargetExpiration(expirations, candidate.expirationDate);
 
         if (!target) {
+          console.log(`${candidate.symbol}: No suitable target expiration found`);
           return {
             ...baseResult,
             suggestionError: 'No expiration 7-10 days out',
           };
         }
 
+        const daysFromCurrent = candidate.expirationDate 
+          ? Math.ceil((target.date.getTime() - candidate.expirationDate.getTime()) / MS_PER_DAY)
+          : target.daysOut;
+        console.log(`${candidate.symbol}: Target expiration ${target.date.toISOString().split('T')[0]} (${daysFromCurrent} days from current expiration)`);
         const targetChain = await fetchChain(candidate.symbol, target.expiration);
+        console.log(`${candidate.symbol}: Target chain has ${targetChain.length} call options`);
         if (targetChain.length === 0) {
           return {
             ...baseResult,
@@ -721,7 +755,11 @@ export const ETradeRollOpportunities: React.FC<ETradeRollOpportunitiesProps> = (
             }
 
             const expirationDate = toExpirationDate(position);
-            if (!isReasonableRoll(expirationDate)) {
+            const symbol = product.symbol?.toUpperCase() ?? 'UNKNOWN';
+            const reasonable = isReasonableRoll(expirationDate);
+            console.log(`Position ${symbol}: expiration=${expirationDate?.toISOString().split('T')[0]}, isReasonableRoll=${reasonable}`);
+            
+            if (!reasonable) {
               return;
             }
 

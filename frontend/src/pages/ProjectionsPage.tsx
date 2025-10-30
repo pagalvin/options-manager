@@ -110,6 +110,13 @@ export function ProjectionsPage() {
       setError(null);
       const data = await projectionsService.list();
       setProjections(data);
+      
+      // Automatically select the first projection if none is selected
+      if (data.length > 0 && !selectedProjection && !isCreating) {
+        // Sort alphabetically to match the display order
+        const sortedData = [...data].sort((a, b) => a.name.localeCompare(b.name));
+        await loadProjectionDetail(sortedData[0].id);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load projections');
     } finally {
@@ -294,6 +301,35 @@ export function ProjectionsPage() {
     }
   }
 
+  function handleFillSubsequent(currentPeriodId: number) {
+    if (!selectedProjection) return;
+    
+    // Combine all periods in order: monthly first, then yearly
+    const allPeriods = [
+      ...selectedProjection.periods.monthly,
+      ...selectedProjection.periods.yearly,
+    ];
+    
+    // Find the index of the current period
+    const currentIndex = allPeriods.findIndex(p => p.id === currentPeriodId);
+    if (currentIndex === -1) return;
+    
+    const currentPeriod = allPeriods[currentIndex];
+    const edit = periodEdits[currentPeriod.id];
+    const actualValue = edit?.actual_balance ?? (currentPeriod.actual_balance?.toString() ?? '');
+    
+    // Apply the current value to all subsequent periods (including current)
+    const updates: Record<number, PeriodEditState> = { ...periodEdits };
+    for (let i = currentIndex; i < allPeriods.length; i++) {
+      const period = allPeriods[i];
+      updates[period.id] = {
+        ...updates[period.id],
+        actual_balance: actualValue,
+      };
+    }
+    setPeriodEdits(updates);
+  }
+
   function renderPeriodTable(title: string, periods: ProjectionPeriod[]) {
     return (
       <div className="space-y-3">
@@ -303,9 +339,13 @@ export function ProjectionsPage() {
             <thead className="bg-muted/50">
               <tr>
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Period</th>
-                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Projected</th>
-                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Actual</th>
-                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Variance</th>
+                <th className="px-3 py-2 text-right font-medium text-muted-foreground">Projected</th>
+                <th className="px-3 py-2 text-right font-medium text-muted-foreground">Actual</th>
+                <th className="px-3 py-2 text-right font-medium text-muted-foreground">Variance</th>
+                <th className="px-3 py-2 text-right font-medium text-muted-foreground">Variance %</th>
+                <th className="px-3 py-2 text-right font-medium text-muted-foreground">Cash Flow 4%</th>
+                <th className="px-3 py-2 text-right font-medium text-muted-foreground">Cash Flow 6%</th>
+                <th className="px-3 py-2 text-right font-medium text-muted-foreground">Cash Flow 8%</th>
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Manual</th>
               </tr>
             </thead>
@@ -319,6 +359,30 @@ export function ProjectionsPage() {
                 const periodLabel = `${period.period_type === 'MONTH' ? 'Month' : 'Year'} ${period.period_index}`;
                 const dateInfo = period.period_end ? formatDateDisplay(period.period_end) : null;
 
+                // Calculate Variance Percent
+                let variancePercent: number | null = null;
+                if (variance !== null && period.expected_balance !== null && period.expected_balance > 0) {
+                  variancePercent = (variance / period.expected_balance) * 100;
+                }
+
+                // Calculate Theoretical Cash Flow
+                // Use the larger of Projected (expected_balance) or Actual (actual_balance)
+                const largestBalance = Math.max(
+                  period.expected_balance ?? 0,
+                  period.actual_balance ?? 0
+                );
+                
+                // Determine the multiplier (1 for monthly, 12 for yearly)
+                const multiplier = period.period_type === 'YEAR' ? 12 : 1;
+                
+                // Calculate cash flows at different percentages
+                const cashFlow4 = largestBalance > 0 ? (largestBalance * 0.04 * multiplier) : null;
+                const cashFlowYearly4 = cashFlow4 ? cashFlow4 * 12 : null;
+                const cashFlow6 = largestBalance > 0 ? (largestBalance * 0.06 * multiplier) : null;
+                const cashFlowYearly6 = cashFlow6 ? cashFlow6 * 12 : null;
+                const cashFlow8 = largestBalance > 0 ? (largestBalance * 0.08 * multiplier) : null;
+                const cashFlowYearly8 = cashFlow8 ? cashFlow8 * 12 : null;
+
                 return (
                   <tr key={period.id} className="hover:bg-muted/30">
                     <td className="px-3 py-2 align-top">
@@ -327,35 +391,75 @@ export function ProjectionsPage() {
                         <div className="text-xs text-muted-foreground">Ends {dateInfo}</div>
                       )}
                     </td>
-                    <td className="px-3 py-2 align-top">
+                    <td className="px-3 py-2 align-top text-right">
                       {isEditingPeriods ? (
                         <Input
                           type="number"
                           step="0.01"
                           value={expectedInput}
                           onChange={(event) => handlePeriodChange(period.id, 'expected_balance', event.target.value)}
+                          className="text-right"
                         />
                       ) : (
                         <span>{formatCurrency(period.expected_balance)}</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 align-top">
+                    <td className="px-3 py-2 align-top text-right">
                       {isEditingPeriods ? (
-                        <Input
-                          type="number"
-                          step="0.01"
-                          value={actualInput}
-                          onChange={(event) => handlePeriodChange(period.id, 'actual_balance', event.target.value)}
-                        />
+                        <div className="flex gap-2 items-center">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={actualInput}
+                            onChange={(event) => handlePeriodChange(period.id, 'actual_balance', event.target.value)}
+                            className="flex-1 text-right"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleFillSubsequent(period.id)}
+                            className="whitespace-nowrap"
+                          >
+                            Fill
+                          </Button>
+                        </div>
                       ) : (
                         <span>{formatCurrency(period.actual_balance)}</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 align-top">
+                    <td className="px-3 py-2 align-top text-right">
                       <span
                         className={variance === null ? 'text-muted-foreground' : variance >= 0 ? 'text-emerald-600' : 'text-red-600'}
                       >
                         {variance === null ? '—' : formatCurrency(variance)}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 align-top text-right">
+                      <span
+                        className={variancePercent === null ? 'text-muted-foreground' : variancePercent >= 0 ? 'text-emerald-600' : 'text-red-600'}
+                      >
+                        {variancePercent === null ? '—' : `${variancePercent >= 0 ? '+' : ''}${variancePercent.toFixed(2)}%`}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 align-top text-right">
+                      <span className="text-foreground">
+                        {cashFlow4 === null ? '—' : formatCurrency(cashFlow4)}
+                        <br/>
+                        {cashFlowYearly4 !== null ? `(${formatCurrency(cashFlowYearly4)}/yr)` : ''}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 align-top text-right">
+                      <span className="text-foreground">
+                        {cashFlow6 === null ? '—' : formatCurrency(cashFlow6)}
+                        <br/>
+                        {cashFlowYearly6 !== null ? `(${formatCurrency(cashFlowYearly6)}/yr)` : ''}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 align-top text-right">
+                      <span className="text-foreground">
+                        {cashFlow8 === null ? '—' : formatCurrency(cashFlow8)}
+                        <br/>
+                        {cashFlowYearly8 !== null ? `(${formatCurrency(cashFlowYearly8)}/yr)` : ''}
                       </span>
                     </td>
                     <td className="px-3 py-2 align-top">
@@ -402,7 +506,10 @@ export function ProjectionsPage() {
               <div className="text-sm text-muted-foreground">No projections available yet.</div>
             ) : (
               <div className="space-y-2">
-                {projections.map((projection) => {
+                {projections
+                  .slice()
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((projection) => {
                   const isActive = selectedId === projection.id && !isCreating;
                   return (
                     <button
@@ -498,25 +605,35 @@ export function ProjectionsPage() {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="starting-capital">Starting Capital</Label>
-                      <Input
-                        id="starting-capital"
-                        type="number"
-                        step="0.01"
-                        value={formState.starting_capital}
-                        onChange={(event) => handleBaseInputChange('starting_capital', event.target.value)}
-                        disabled={!isEditingBase}
-                      />
+                      {isEditingBase ? (
+                        <Input
+                          id="starting-capital"
+                          type="number"
+                          step="0.01"
+                          value={formState.starting_capital}
+                          onChange={(event) => handleBaseInputChange('starting_capital', event.target.value)}
+                        />
+                      ) : (
+                        <div className="px-3 py-2 text-sm text-foreground">
+                          {formatCurrency(formState.starting_capital)}
+                        </div>
+                      )}
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="monthly-infusion">Monthly Infusion</Label>
-                      <Input
-                        id="monthly-infusion"
-                        type="number"
-                        step="0.01"
-                        value={formState.monthly_infusion}
-                        onChange={(event) => handleBaseInputChange('monthly_infusion', event.target.value)}
-                        disabled={!isEditingBase}
-                      />
+                      {isEditingBase ? (
+                        <Input
+                          id="monthly-infusion"
+                          type="number"
+                          step="0.01"
+                          value={formState.monthly_infusion}
+                          onChange={(event) => handleBaseInputChange('monthly_infusion', event.target.value)}
+                        />
+                      ) : (
+                        <div className="px-3 py-2 text-sm text-foreground">
+                          {formatCurrency(formState.monthly_infusion)}
+                        </div>
+                      )}
                     </div>
                     <div className="space-y-2 md:col-span-2">
                       <Label htmlFor="projection-description">Description / Notes</Label>

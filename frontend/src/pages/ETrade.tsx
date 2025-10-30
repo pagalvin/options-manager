@@ -154,6 +154,7 @@ export function ETradePage() {
   const [environmentLoading, setEnvironmentLoading] = useState(false);
   const [credentialsAvailable, setCredentialsAvailable] = useState(true);
   const [showFullChain, setShowFullChain] = useState(false);
+  const [savingToAnalysis, setSavingToAnalysis] = useState(false);
   
   // Submenu state
   const [activeSubmenu, setActiveSubmenu] = useState<'quotes' | 'positions' | 'rolls' | 'transactions' | 'orders'>('quotes');
@@ -512,6 +513,239 @@ export function ETradePage() {
     return `${percentage.toFixed(2)}%`;
   };
 
+  // Helper function to clamp implied volatility between 0 and 999.99
+  const clampImpliedVolatility = (iv: number | null): number | null => {
+    if (iv === null || iv === undefined) return null;
+    return Math.max(0, Math.min(999.99, iv));
+  };
+
+  // Helper function to clamp delta between -1 and 1
+  const clampDelta = (delta: number | null): number | null => {
+    if (delta === null || delta === undefined) return null;
+    return Math.max(-1, Math.min(1, delta));
+  };
+
+  // Helper function to find best option strategy across multiple expiration dates
+  const findBestOptionStrategy = async (symbol: string, currentPrice: number, maxExpirations: number = 2) => {
+    const exps = await etradeAPI.getOptionExpirationDates(symbol);
+    const expirations = exps?.expirationDates || exps?.ExpirationDates || [];
+    if (!expirations.length) {
+      throw new Error('No option expirations found for this symbol.');
+    }
+
+    // Try up to maxExpirations (default 2)
+    const expirationsToTry = expirations.slice(0, maxExpirations);
+    
+    for (let i = 0; i < expirationsToTry.length; i++) {
+      const expiration = expirationsToTry[i];
+      const year = String(expiration.year);
+      const month = String(expiration.month);
+      const day = String(expiration.day);
+      
+      try {
+        const chainRaw = await etradeAPI.getOptionChain(symbol, year, month, day);
+        const chain = chainRaw?.OptionChainResponse ? {
+          ...chainRaw.OptionChainResponse,
+          OptionPair: chainRaw.OptionChainResponse.OptionPair || [],
+          SelectedED: chainRaw.OptionChainResponse.SelectedED,
+        } : chainRaw;
+        const pairs = chain?.optionPairs || chain?.OptionPair || [];
+        
+        if (!pairs.length) {
+          console.warn(`No option chain data for expiration ${year}-${month}-${day}, trying next...`);
+          continue;
+        }
+
+        // Build 1%+ ITM call opportunities
+        const opportunities = pairs.map((pair: any) => {
+          const c = pair.Call;
+          if (!c) return null;
+          if (c.inTheMoney !== 'y') return null;
+          if (!c.bid || c.bid <= 0) return null;
+          const strikePrice = c.strikePrice as number;
+          const premium = c.bid as number;
+          const impliedVolatility = c.OptionGreeks?.iv || c.impliedVolatility || c.iv || null;
+          const delta = c.OptionGreeks?.delta || c.delta || null;
+          const totalRevenue = strikePrice + premium;
+          const gainPercent = ((totalRevenue - currentPrice) / currentPrice) * 100;
+          if (gainPercent >= 1) {
+            return {
+              strikePrice,
+              premium,
+              totalRevenue,
+              gainPercent,
+              impliedVolatility,
+              delta,
+              year,
+              month,
+              day
+            };
+          }
+          return null;
+        }).filter(Boolean) as Array<{ 
+          strikePrice: number; 
+          premium: number; 
+          totalRevenue: number; 
+          gainPercent: number; 
+          impliedVolatility: number | null; 
+          delta: number | null;
+          year: string;
+          month: string;
+          day: string;
+        }>;
+
+        if (opportunities.length > 0) {
+          opportunities.sort((a, b) => a.totalRevenue - b.totalRevenue);
+          return opportunities[0];
+        }
+        
+        console.log(`No 1%+ gain ITM call opportunities found for ${symbol} (exp: ${new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString()}), trying next expiration...`);
+      } catch (error) {
+        console.warn(`Error fetching option chain for expiration ${year}-${month}-${day}:`, error);
+        continue;
+      }
+    }
+
+    return null;
+  };
+
+  const saveForAnalysis = async () => {
+
+    console.log('Etrade.tsx: saveForAnalysis called');
+
+    if (!stockQuote || !stockQuote.QuoteResponse?.QuoteData?.[0]) {
+      console.error('Etrade.tsx: No stock quote available to save');
+      setError('No stock quote available to save');
+      return;
+    }
+
+    try {
+      setSavingToAnalysis(true);
+      setError(null);
+
+      console.log('Etrade.tsx: Fetching stock quote data for analysis save');
+
+      const quoteData = stockQuote.QuoteResponse.QuoteData[0];
+      const symbol = quoteData.Product.symbol;
+      const currentPrice = quoteData.All.lastTrade;
+      const companyName = quoteData.All.companyName;
+
+      // Get earnings date if available
+      let nextEarningsDate = null;
+      const nextEarningDateAsString = quoteData.All.nextEarningDate;
+      if (nextEarningDateAsString && nextEarningDateAsString.trim().length > 0) {
+        const nextEarningDateAsDate = new Date(nextEarningDateAsString);
+        nextEarningsDate = nextEarningDateAsDate.getFullYear() + "-" + 
+          String(nextEarningDateAsDate.getMonth() + 1).padStart(2, '0') + "-" + 
+          String(nextEarningDateAsDate.getDate()).padStart(2, '0');
+      }
+
+      console.log(`Etrade.tsx: Preparing to save analysis for ${symbol} at price ${currentPrice}`);
+
+      // First, check if entry already exists for this symbol
+      const existingResponse = await fetch(`/api/manual-options-analysis/security/${symbol}`);
+      let shouldCreateNew = true;
+      
+      if (existingResponse.ok) {
+        const existingEntries = await existingResponse.json();
+        console.log(`Etrade.tsx: Existing entries response for ${symbol}:`, existingEntries);
+
+        if (existingEntries && existingEntries.length > 0) {
+          console.log(`Etrade.tsx: Found existing analysis entries for ${symbol}:`, existingEntries);
+          shouldCreateNew = false;
+
+          // Entry exists, update the first one
+          const existingEntry = existingEntries[0];
+          
+          // Find best option strategy
+          const chosen = await findBestOptionStrategy(symbol, currentPrice);
+          
+          console.log(`Etrade.tsx: Best option strategy for ${symbol}:`, chosen);
+
+          const updateData: any = {
+            market_price: currentPrice,
+            company_name: companyName,
+            next_earnings_date: nextEarningsDate,
+          };
+
+          if (chosen) {
+            const optionDate = `${chosen.year}-${String(chosen.month).padStart(2, '0')}-${String(chosen.day).padStart(2, '0')}`;
+            updateData.option_date = optionDate;
+            updateData.strike_price = chosen.strikePrice;
+            updateData.premium_per_contract = chosen.premium;
+            updateData.implied_volatility = chosen.impliedVolatility ? Number(clampImpliedVolatility(chosen.impliedVolatility)?.toFixed(2)) : null;
+            updateData.delta = chosen.delta ? Number(clampDelta(chosen.delta)?.toFixed(4)) : null;
+            updateData.lots = 1;
+          }
+
+          console.log(`Etrade.tsx: Updating existing analysis record for ${symbol}`);
+
+          const response = await fetch(`/api/manual-options-analysis/${existingEntry.id}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(updateData)
+          });
+
+          if (!response.ok) {
+            console.error('Error updating analysis record:', response.statusText);
+            alert(`Failed to update existing analysis record for ${symbol}`);
+            throw new Error(`Failed to update analysis record: ${response.status}`);
+          }
+
+          alert(`Updated existing analysis record for ${symbol}${chosen ? ' with strategy' : ' (no strategy available)'}`);
+        }
+      }
+      
+      if (shouldCreateNew) {
+        console.log(`Etrade.tsx: No existing analysis record for ${symbol}, creating new one`);
+
+        // Create new entry
+        const chosen = await findBestOptionStrategy(symbol, currentPrice);
+
+        const newEntry: any = {
+          security: symbol,
+          market_price: currentPrice,
+          company_name: companyName,
+          next_earnings_date: nextEarningsDate,
+          lots: chosen ? 1 : 0,
+        };
+
+        if (chosen) {
+          const optionDate = `${chosen.year}-${String(chosen.month).padStart(2, '0')}-${String(chosen.day).padStart(2, '0')}`;
+          newEntry.option_date = optionDate;
+          newEntry.strike_price = chosen.strikePrice;
+          newEntry.premium_per_contract = chosen.premium;
+          newEntry.implied_volatility = chosen.impliedVolatility ? Number(clampImpliedVolatility(chosen.impliedVolatility)?.toFixed(2)) : null;
+          newEntry.delta = chosen.delta ? Number(clampDelta(chosen.delta)?.toFixed(4)) : null;
+        }
+
+        console.log(`Etrade.tsx: Creating new analysis record for ${symbol}`);
+        console.log(`Etrade.tsx: New entry data:`, newEntry);
+
+        const response = await fetch('/api/manual-options-analysis', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(newEntry)
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to create analysis record: ${response.status}`);
+        }
+
+        alert(`Created new analysis record for ${symbol}${chosen ? ' with strategy' : ' (no strategy available)'}`);
+      }
+    } catch (err) {
+      console.error('Error saving to analysis:', err);
+      setError(err instanceof Error ? err.message : 'Failed to save for analysis');
+    } finally {
+      setSavingToAnalysis(false);
+    }
+  };
+
   const formatLargeNumber = (num: number): string => {
     if (num >= 1e9) {
       return `${(num / 1e9).toFixed(1)}B`;
@@ -845,6 +1079,16 @@ export function ETradePage() {
           >
             {fetchingQuote ? <RefreshCw className="animate-spin" size={16} /> : null}
             <span>Get Quote</span>
+          </button>
+          <button
+            type="button"
+            onClick={saveForAnalysis}
+            disabled={savingToAnalysis || !stockQuote}
+            className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center space-x-2"
+            title={!stockQuote ? "Get a quote first before saving for analysis" : "Save this stock to the analyzer and run update strategy"}
+          >
+            {savingToAnalysis ? <RefreshCw className="animate-spin" size={16} /> : null}
+            <span>Save for Analysis</span>
           </button>
         </form>
 

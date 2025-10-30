@@ -6,6 +6,7 @@ import { returnOnCapitalService, ReturnOnCapitalPieChartData, ReturnOnCapitalBar
 import { useState, useEffect } from "react";
 import { calculateOpenOptions } from "@/lib/utils";
 import { AlertTriangle, AlertCircle, BarChart3, TrendingUp, PieChart, Target, DollarSign } from 'lucide-react';
+import PremiumCashFlow from "@/pages/PremiumCashFlow";
 
 
 interface OptionAnalysis {
@@ -40,7 +41,7 @@ export function Options() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [hideZeroLots, setHideZeroLots] = useState(true);
-    const [activeTab, setActiveTab] = useState<'grid' | 'charts' | 'news'>('grid');
+    const [activeTab, setActiveTab] = useState<'grid' | 'charts' | 'news' | 'calendar'>('grid');
     const [sortConfig, setSortConfig] = useState<{
         key: keyof OptionAnalysis;
         direction: "asc" | "desc";
@@ -1215,6 +1216,16 @@ export function Options() {
                     >
                         Latest News
                     </button>
+                    <button
+                        onClick={() => setActiveTab('calendar')}
+                        className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                            activeTab === 'calendar'
+                                ? 'border-blue-500 text-blue-600'
+                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                        }`}
+                    >
+                        Cash Flow Calendar
+                    </button>
                 </nav>
             </div>
 
@@ -1834,6 +1845,8 @@ export function Options() {
                             <LatestNews tickers={uniqueTickers} />
                         </div>
                     )}
+
+                    {activeTab === 'calendar' && <PremiumCashFlow />}
                 </>
             )}
         </div>
