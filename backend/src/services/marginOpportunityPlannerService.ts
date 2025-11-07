@@ -190,7 +190,9 @@ export class MarginOpportunityPlannerService {
     
     for (const account of accounts) {
       try {
-        const portfolioResponse = await etradeService.getPortfolio(sessionId, account.accountIdKey);
+        // Use getAllPortfolioPositions to get ALL positions across all pages
+        console.log(`Fetching ALL positions for account ${account.accountIdKey}...`);
+        const portfolioResponse = await etradeService.getAllPortfolioPositions(sessionId, account.accountIdKey);
         
         // Handle both response formats
         const portfolios = portfolioResponse.PortfolioResponse?.AccountPortfolio || 
@@ -200,7 +202,7 @@ export class MarginOpportunityPlannerService {
         
         for (const portfolio of portfolios) {
           const positions = portfolio.Position || portfolio.position || [];
-          console.log(`Portfolio has ${positions.length} positions`);
+          console.log(`Portfolio has ${positions.length} positions (after pagination)`);
           allPositions.push(...positions);
         }
       } catch (error) {
@@ -215,12 +217,34 @@ export class MarginOpportunityPlannerService {
       console.log('Sample position structure:', JSON.stringify(allPositions[0], null, 2));
     }
     
+    // Debug: Check for MARA positions specifically
+    const maraPositions = allPositions.filter(p => p.Product?.symbol === 'MARA');
+    console.log(`Found ${maraPositions.length} MARA positions (all types)`, maraPositions.map(p => ({
+      positionId: p.positionId,
+      symbol: p.Product?.symbol,
+      type: p.Product?.securityType || p.Product?.typeCode,
+      strike: p.Product?.strikePrice,
+      expiry: `${p.Product?.expiryMonth}/${p.Product?.expiryDay}/${p.Product?.expiryYear}`,
+      quantity: p.quantity
+    })));
+    
     // Filter for options only and transform to our format
     const optionPositions = allPositions.filter(position => 
       position.Product?.typeCode === 'OPTN' || position.Product?.callPut
     );
     
     console.log(`Found ${optionPositions.length} option positions after filtering`);
+    
+    // Debug: Check for MARA options specifically
+    const maraOptions = optionPositions.filter(p => p.Product?.symbol === 'MARA');
+    console.log(`Found ${maraOptions.length} MARA option positions`, maraOptions.map(p => ({
+      positionId: p.positionId,
+      symbol: p.Product?.symbol,
+      strike: p.Product?.strikePrice,
+      expiry: `${p.Product?.expiryMonth}/${p.Product?.expiryDay}/${p.Product?.expiryYear}`,
+      callPut: p.Product?.callPut,
+      quantity: p.quantity
+    })));
     
     if (optionPositions.length > 0) {
       console.log('Sample option position:', JSON.stringify(optionPositions[0], null, 2));

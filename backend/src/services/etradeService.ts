@@ -1142,6 +1142,9 @@ export class ETradeService {
       }
       
       const url = params.toString() ? `${baseUrl}?${params.toString()}` : baseUrl;
+      console.log(`Fetching portfolio from URL: ${url}`);
+      console.log(`Query parameters:`, Object.fromEntries(params.entries()));
+      
       const authHeader = this.createAuthHeader('GET', url, accessToken);
 
       const response = await axios.get(url, {
@@ -1174,6 +1177,154 @@ export class ETradeService {
         throw new Error(`Failed to get portfolio: ${error.response?.status} ${error.response?.data || error.message}`);
       }
       throw new Error('Failed to get portfolio from E*TRADE');
+    }
+  }
+
+  async getAllPortfolioPositions(
+    sessionId: string, 
+    accountIdKey: string, 
+    options: Omit<PortfolioOptions, 'pageNumber'> = {}
+  ): Promise<PortfolioResponse> {
+    try {
+      const allPositions: any[] = [];
+      let currentPage = 1; // E*TRADE uses 1-based page numbering (not 0-based)
+      let totalPages = 1;
+      let totals: PortfolioTotals | undefined;
+      let accountId = '';
+      const maxPages = 20; // Safety limit to prevent infinite loops
+      const pageDelay = 500; // 500ms delay between pages to avoid rate limiting
+      
+      console.log(`Starting to fetch all portfolio positions (max ${maxPages} pages, ${pageDelay}ms delay)...`);
+      console.log(`Options passed to getAllPortfolioPositions:`, options);
+      
+      while (currentPage <= totalPages && currentPage <= maxPages) {
+        console.log(`Fetching portfolio page ${currentPage}/${totalPages} (pageNumber param: ${currentPage})...`);
+        
+        // Add delay between requests (except for the first one)
+        if (currentPage > 1) {
+          console.log(`Waiting ${pageDelay}ms before next request...`);
+          await this.delay(pageDelay);
+        }
+        
+        const pageResult = await this.retryWithBackoff(async () => {
+          return this.getPortfolio(sessionId, accountIdKey, {
+            ...options,
+            pageNumber: currentPage,
+            count: 50 // Request 50 positions per page for efficiency
+          });
+        });
+        
+        // Extract account portfolio data (handle both wrapped and direct response formats)
+        const accountPortfolioArray = pageResult.PortfolioResponse?.AccountPortfolio || pageResult.accountPortfolio || [];
+        
+        console.log(`Page ${currentPage + 1} response structure:`, {
+          hasPortfolioResponse: !!pageResult.PortfolioResponse,
+          accountPortfolioCount: accountPortfolioArray.length,
+          firstAccountKeys: accountPortfolioArray[0] ? Object.keys(accountPortfolioArray[0]) : []
+        });
+        
+        if (accountPortfolioArray.length > 0) {
+          const accountPortfolio = accountPortfolioArray[0];
+          const positions = accountPortfolio.Position || accountPortfolio.position || [];
+          
+          console.log(`Page ${currentPage + 1} metadata:`, {
+            accountId: accountPortfolio.accountId,
+            totalPages: accountPortfolio.totalPages,
+            totalNoOfPages: accountPortfolio.totalNoOfPages,
+            nextPageNo: accountPortfolio.nextPageNo,
+            next: accountPortfolio.next,
+            positionsCount: positions.length
+          });
+          
+          if (positions.length > 0) {
+            allPositions.push(...positions);
+            console.log(`Retrieved ${positions.length} positions from page ${currentPage}. Total so far: ${allPositions.length}`);
+            
+            // Debug: Log MARA positions specifically
+            const maraPositions = positions.filter((p: any) => p.Product?.symbol === 'MARA');
+            if (maraPositions.length > 0) {
+              console.log(`MARA positions on page ${currentPage}:`, maraPositions.map((p: any) => ({
+                positionId: p.positionId,
+                symbol: p.Product?.symbol,
+                type: p.Product?.securityType,
+                strike: p.Product?.strikePrice,
+                expiry: `${p.Product?.expiryMonth}/${p.Product?.expiryDay}/${p.Product?.expiryYear}`
+              })));
+            }
+          }
+          
+          // Update pagination info from first page
+          if (currentPage === 1) {
+            accountId = accountPortfolio.accountId || accountIdKey;
+            totalPages = accountPortfolio.totalPages || accountPortfolio.totalNoOfPages || 1;
+            
+            // Get totals from first page
+            if (pageResult.PortfolioResponse?.Totals) {
+              totals = pageResult.PortfolioResponse.Totals;
+            } else if (pageResult.totals) {
+              totals = pageResult.totals;
+            }
+            
+            console.log(`Total pages to fetch: ${totalPages}`);
+          }
+          
+          // Check if there are more pages
+          if (!accountPortfolio.nextPageNo && !accountPortfolio.next) {
+            console.log('No more pages indicated by API');
+            break;
+          }
+        } else {
+          console.log('No account portfolio data in response');
+          break;
+        }
+        
+        currentPage++;
+      }
+      
+      console.log(`Finished fetching portfolio. Total positions retrieved: ${allPositions.length}`);
+      
+      // Deduplicate positions by positionId
+      const uniquePositions = allPositions.reduce((acc: any[], position: any) => {
+        const existingIndex = acc.findIndex((p: any) => p.positionId === position.positionId);
+        if (existingIndex === -1) {
+          acc.push(position);
+        } else {
+          console.log(`Duplicate position detected and removed: positionId=${position.positionId}, symbol=${position.Product?.symbol}, type=${position.Product?.securityType}`);
+        }
+        return acc;
+      }, []);
+      
+      console.log(`After deduplication: ${uniquePositions.length} unique positions (was ${allPositions.length})`);
+      
+      // Debug: Check MARA positions after deduplication
+      const maraPositions = uniquePositions.filter((p: any) => p.Product?.symbol === 'MARA');
+      console.log(`MARA positions after deduplication: ${maraPositions.length}`, maraPositions.map((p: any) => ({
+        positionId: p.positionId,
+        type: p.Product?.securityType,
+        strike: p.Product?.strikePrice,
+        expiry: `${p.Product?.expiryMonth}/${p.Product?.expiryDay}/${p.Product?.expiryYear}`,
+        quantity: p.quantity
+      })));
+      
+      // Return consolidated response
+      return {
+        PortfolioResponse: {
+          Totals: totals,
+          AccountPortfolio: [{
+            accountId: accountId,
+            totalPages: 1, // All positions now in single response
+            Position: uniquePositions
+          }]
+        }
+      };
+    } catch (error) {
+      console.error('Error getting all portfolio positions:', error);
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          throw new Error('Authentication failed. Please re-authenticate.');
+        }
+      }
+      throw new Error('Failed to get all portfolio positions from E*TRADE');
     }
   }
 

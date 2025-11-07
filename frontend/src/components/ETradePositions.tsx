@@ -544,7 +544,7 @@ export function ETradePositions({ sessionId }: ETradePositionsProps) {
             <>
               {/* Portfolio Totals */}
               {portfolio && getPortfolioTotals(portfolio) && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
                   <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg border border-blue-200">
                     <div className="flex items-center space-x-2 mb-2">
                       <DollarSign size={16} className="text-blue-600" />
@@ -622,6 +622,19 @@ export function ETradePositions({ sessionId }: ETradePositionsProps) {
                     </div>
                     <div className="text-2xl font-bold text-purple-900">
                       {formatCurrency(getPortfolioTotals(portfolio)!.cashBalance)}
+                    </div>
+                  </div>
+
+                  <div className="bg-gradient-to-r from-teal-50 to-cyan-50 p-4 rounded-lg border border-teal-200">
+                    <div className="flex items-center space-x-2 mb-2">
+                      <DollarSign size={16} className="text-teal-600" />
+                      <span className="text-sm font-medium text-teal-800">Net Value</span>
+                    </div>
+                    <div className="text-2xl font-bold text-teal-900">
+                      {formatCurrency(getPortfolioTotals(portfolio)!.totalMarketValue + getPortfolioTotals(portfolio)!.cashBalance)}
+                    </div>
+                    <div className="text-xs text-teal-700 mt-1">
+                      Market + Cash
                     </div>
                   </div>
                 </div>

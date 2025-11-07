@@ -372,15 +372,15 @@ export function ProjectionsPage() {
                   period.actual_balance ?? 0
                 );
                 
-                // Determine the multiplier (1 for monthly, 12 for yearly)
-                const multiplier = period.period_type === 'YEAR' ? 12 : 1;
-                
-                // Calculate cash flows at different percentages
-                const cashFlow4 = largestBalance > 0 ? (largestBalance * 0.04 * multiplier) : null;
+                // Calculate annual cash flows at different percentages
+                // Display the annual rate, and show what that would be if compounded monthly (×12)
+                const cashFlow4 = largestBalance > 0 ? (largestBalance * 0.04) : null;
                 const cashFlowYearly4 = cashFlow4 ? cashFlow4 * 12 : null;
-                const cashFlow6 = largestBalance > 0 ? (largestBalance * 0.06 * multiplier) : null;
+                
+                const cashFlow6 = largestBalance > 0 ? (largestBalance * 0.06) : null;
                 const cashFlowYearly6 = cashFlow6 ? cashFlow6 * 12 : null;
-                const cashFlow8 = largestBalance > 0 ? (largestBalance * 0.08 * multiplier) : null;
+                
+                const cashFlow8 = largestBalance > 0 ? (largestBalance * 0.08) : null;
                 const cashFlowYearly8 = cashFlow8 ? cashFlow8 * 12 : null;
 
                 return (

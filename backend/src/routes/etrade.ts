@@ -587,14 +587,13 @@ router.get('/accounts/:accountIdKey/portfolio', async (req, res) => {
     const { accountIdKey } = req.params;
     const sessionId = req.headers['x-session-id'] as string;
     const { 
-      count, 
       sortBy, 
       sortOrder, 
-      pageNumber, 
       marketSession, 
       totalsRequired, 
       lotsRequired, 
-      view 
+      view,
+      allPages // New parameter to control whether to fetch all pages
     } = req.query;
 
     if (!sessionId) {
@@ -605,16 +604,32 @@ router.get('/accounts/:accountIdKey/portfolio', async (req, res) => {
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    const portfolio = await etradeService.getPortfolio(sessionId, accountIdKey, {
-      count: count ? parseInt(count as string) : undefined,
-      sortBy: sortBy as string,
-      sortOrder: sortOrder as 'ASC' | 'DESC',
-      pageNumber: pageNumber ? parseInt(pageNumber as string) : undefined,
-      marketSession: marketSession as 'REGULAR' | 'EXTENDED',
-      totalsRequired: totalsRequired === 'true',
-      lotsRequired: lotsRequired === 'true',
-      view: view as 'PERFORMANCE' | 'FUNDAMENTAL' | 'OPTIONSWATCH' | 'QUICK' | 'COMPLETE'
-    });
+    // By default, fetch all pages to get complete portfolio
+    // Set allPages=false to get only first page (for backwards compatibility)
+    const fetchAllPages = allPages !== 'false';
+    
+    let portfolio;
+    if (fetchAllPages) {
+      console.log('Fetching ALL portfolio positions across all pages...');
+      portfolio = await etradeService.getAllPortfolioPositions(sessionId, accountIdKey, {
+        sortBy: sortBy as string,
+        sortOrder: sortOrder as 'ASC' | 'DESC',
+        marketSession: marketSession as 'REGULAR' | 'EXTENDED',
+        totalsRequired: totalsRequired === 'true',
+        lotsRequired: lotsRequired === 'true',
+        view: view as 'PERFORMANCE' | 'FUNDAMENTAL' | 'OPTIONSWATCH' | 'QUICK' | 'COMPLETE'
+      });
+    } else {
+      console.log('Fetching single page of portfolio positions...');
+      portfolio = await etradeService.getPortfolio(sessionId, accountIdKey, {
+        sortBy: sortBy as string,
+        sortOrder: sortOrder as 'ASC' | 'DESC',
+        marketSession: marketSession as 'REGULAR' | 'EXTENDED',
+        totalsRequired: totalsRequired === 'true',
+        lotsRequired: lotsRequired === 'true',
+        view: view as 'PERFORMANCE' | 'FUNDAMENTAL' | 'OPTIONSWATCH' | 'QUICK' | 'COMPLETE'
+      });
+    }
     
     res.json(portfolio);
   } catch (error) {
